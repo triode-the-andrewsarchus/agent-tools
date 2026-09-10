@@ -7,3 +7,6 @@ __pycache__/
 dist/
 build/
 *.db
+*.lock
+scheduler_state.json
+*.tmp

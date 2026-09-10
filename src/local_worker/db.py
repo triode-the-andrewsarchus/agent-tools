@@ -133,9 +133,71 @@ class JobStore:
             rows = await cur.fetchall()
         return [_row_to_job(r) for r in rows]
 
+    async def get_queued_counts(self) -> dict[str, int]:
+        """Return count of queued jobs per worker class."""
+        counts = {"cheap": 0, "smart": 0}
+        async with self._db.execute(
+            "SELECT worker_class, COUNT(*) as cnt FROM jobs WHERE status='queued' GROUP BY worker_class"
+        ) as cur:
+            rows = await cur.fetchall()
+            for r in rows:
+                counts[r["worker_class"]] = r["cnt"]
+        return counts
+
+    async def claim_queued_jobs(
+        self, worker_class: WorkerClass, limit: int = 1
+    ) -> list[Job]:
+        """Atomically claim up to `limit` queued jobs by setting status='running'."""
+        now_str = datetime.now(timezone.utc).isoformat()
+        async with self._db.execute(
+            """SELECT job_id FROM jobs
+               WHERE status='queued' AND worker_class=?
+               ORDER BY priority ASC, queued_at ASC
+               LIMIT ?""",
+            (worker_class.value, limit),
+        ) as cur:
+            rows = await cur.fetchall()
+
+        if not rows:
+            return []
+
+        claimed: list[Job] = []
+        for r in rows:
+            jid = r["job_id"]
+            res = await self._db.execute(
+                "UPDATE jobs SET status='running', started_at=? WHERE job_id=? AND status='queued'",
+                (now_str, jid),
+            )
+            if res.rowcount > 0:
+                job = await self.get_job(jid)
+                if job:
+                    claimed.append(job)
+        await self._db.commit()
+        return claimed
+
+    async def cancel_job(self, job_id: str) -> bool:
+        """Cancel a job. If queued, sets status='cancelled' immediately."""
+        now_str = datetime.now(timezone.utc).isoformat()
+        res = await self._db.execute(
+            """UPDATE jobs SET status='cancelled', completed_at=?
+               WHERE job_id=? AND status IN ('queued', 'running')""",
+            (now_str, job_id),
+        )
+        await self._db.commit()
+        return res.rowcount > 0
+
+    async def reset_stale_running_jobs(self) -> int:
+        """Reset orphaned 'running' jobs back to 'queued' when a leader starts."""
+        res = await self._db.execute(
+            "UPDATE jobs SET status='queued', started_at=NULL WHERE status='running'"
+        )
+        await self._db.commit()
+        if res.rowcount > 0:
+            log.info("Reset %d stale running jobs back to queued", res.rowcount)
+        return res.rowcount
+
     async def prune_old_jobs(self, retention_days: int) -> int:
         """Remove terminal jobs older than retention_days. Returns count deleted."""
-        cutoff = datetime.now(timezone.utc).isoformat()
         result = await self._db.execute(
             """DELETE FROM jobs
                WHERE status IN ('completed','cancelled','context_exhausted',

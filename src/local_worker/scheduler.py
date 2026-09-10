@@ -1,20 +1,26 @@
 """
-Async scheduler with mode FSM for cheap/smart GPU switching.
+Async scheduler with mode FSM for cheap/smart GPU switching and cross-process coordination.
 
-Mode transitions:
-  idle → cheap_loading → cheap_ready
-  cheap_ready → draining → smart_loading → smart_ready
-  smart_ready → smart_unloading → cheap_reloading → cheap_ready
-  cheap_ready → idle (on graceful shutdown)
+Coordination architecture:
+- Multiple Antigravity instances/processes can connect to the same SQLite database.
+- A POSIX file lock (`scheduler.lock`) designates one active Leader scheduler.
+- The Leader scheduler owns model loading/unloading and inference against LM Studio.
+- Other instances run as Followers: they submit jobs to SQLite and read results.
+- If the Leader instance exits or closes, a Follower automatically acquires the lock
+  and promotes itself to Leader without missing any queued jobs.
 """
 
 from __future__ import annotations
 
 import asyncio
+import fcntl
+import json
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from datetime import timezone
+from pathlib import Path
 from typing import Any
 
 from .config import AppConfig, WorkerProfile
@@ -25,32 +31,83 @@ from .models import Job, JobStatus, SchedulerMode, WorkerClass, utcnow
 log = logging.getLogger(__name__)
 
 
-@dataclass(order=True)
-class _PrioritizedJob:
-    """Wrapper for priority queue — sorted by (priority, queue time)."""
-    sort_key: tuple = field(compare=True)
-    job: Job = field(compare=False)
+class SchedulerLock:
+    """Inter-process leader lock using fcntl.flock on a lockfile."""
+
+    def __init__(self, lock_path: Path) -> None:
+        self.lock_path = lock_path
+        self._fp = None
+        self.is_leader = False
+
+    def try_acquire(self) -> bool:
+        if self.is_leader:
+            return True
+        try:
+            self.lock_path.parent.mkdir(parents=True, exist_ok=True)
+            self._fp = open(self.lock_path, "a+")
+            fcntl.flock(self._fp.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self._fp.seek(0)
+            self._fp.truncate()
+            self._fp.write(f"{os.getpid()}\n")
+            self._fp.flush()
+            self.is_leader = True
+            return True
+        except (BlockingIOError, OSError):
+            if self._fp:
+                try:
+                    self._fp.close()
+                except Exception:
+                    pass
+                self._fp = None
+            self.is_leader = False
+            return False
+
+    def release(self) -> None:
+        if self._fp:
+            try:
+                fcntl.flock(self._fp.fileno(), fcntl.LOCK_UN)
+                self._fp.close()
+            except Exception:
+                pass
+            self._fp = None
+        self.is_leader = False
 
 
 class Scheduler:
-    """Manages GPU mode and dispatches jobs to LM Studio."""
+    """Manages GPU mode, cross-process coordination, and dispatches jobs to LM Studio."""
 
-    def __init__(self, cfg: AppConfig, store: JobStore, client: LMSClient) -> None:
+    def __init__(
+        self,
+        cfg: AppConfig,
+        store: JobStore,
+        client: LMSClient,
+        lock_path: Path | None = None,
+        acquire_lock: bool = True,
+    ) -> None:
         self._cfg = cfg
         self._store = store
         self._client = client
 
-        # Priority queues, one per worker class
-        self._cheap_q: asyncio.PriorityQueue[_PrioritizedJob] = asyncio.PriorityQueue()
-        self._smart_q: asyncio.PriorityQueue[_PrioritizedJob] = asyncio.PriorityQueue()
+        # Coordination
+        is_memory_db = str(cfg.db_path) == ":memory:"
+        if is_memory_db and lock_path is None:
+            acquire_lock = False
+
+        default_lock = cfg.db_path.parent / "scheduler.lock"
+        self._lock_path = lock_path if lock_path is not None else default_lock
+        self._state_path = self._lock_path.parent / "scheduler_state.json"
+        self._should_acquire_lock = acquire_lock
+        self._leader_lock = SchedulerLock(self._lock_path) if acquire_lock else None
+        self._is_leader = not acquire_lock  # If acquire_lock is False (e.g. tests), default to leader
+        self._wake_event = asyncio.Event()
 
         # In-flight job tracking
-        self._running: set[str] = set()          # job_ids currently in inference
-        self._cancelled: set[str] = set()         # job_ids cancelled by caller
+        self._running: set[str] = set()
+        self._cancelled: set[str] = set()
 
         # Mode FSM
         self._mode: SchedulerMode = SchedulerMode.idle
-        self._loaded_model: str | None = None     # lms identifier currently loaded
+        self._loaded_model: str | None = None
 
         # Observability
         self._start_time = time.monotonic()
@@ -70,57 +127,53 @@ class Scheduler:
     # ──────────────────────────────────────────────
 
     async def submit(self, job: Job) -> Job:
-        """Enqueue a job. Returns the job with status=queued."""
+        """Enqueue a job. Persists to SQLite so any active Leader can claim it."""
         if not self._lms_reachable:
-            job.status = JobStatus.resource_error
-            job.error_message = "LM Studio is not reachable at startup. Check that LM Studio is running."
-            await self._store.insert_job(job)
-            return job
+            # Re-check reachability
+            if not await self._client.is_reachable():
+                job.status = JobStatus.resource_error
+                job.error_message = "LM Studio is not reachable. Check that LM Studio is running."
+                await self._store.insert_job(job)
+                return job
+            self._lms_reachable = True
 
         await self._store.insert_job(job)
-        pjob = _PrioritizedJob(
-            sort_key=(job.priority, job.queued_at.timestamp()),
-            job=job,
-        )
-        if job.worker_class == WorkerClass.cheap:
-            await self._cheap_q.put(pjob)
-        else:
-            await self._smart_q.put(pjob)
-
+        self._wake_event.set()
         log.info("Queued %s job %s (priority=%d)", job.worker_class, job.job_id, job.priority)
         return job
 
     async def cancel(self, job_id: str) -> bool:
-        """Request cancellation. Returns True if job was found."""
-        job = await self._store.get_job(job_id)
-        if not job:
-            return False
-        if job.status in (JobStatus.queued, JobStatus.running):
-            self._cancelled.add(job_id)
-            if job.status == JobStatus.queued:
-                job.status = JobStatus.cancelled
-                job.completed_at = utcnow()
-                await self._store.update_job(job)
-            # Running jobs will be cancelled when their asyncio task checks _cancelled
-        return True
+        """Request cancellation. Updates DB and in-flight tracking."""
+        self._cancelled.add(job_id)
+        found = await self._store.cancel_job(job_id)
+        return found
 
     async def get_status(self) -> dict:
         """Return scheduler status dict for MCP."""
-        # Refresh VRAM info
+        if not self._is_leader and self._state_path.exists():
+            try:
+                with open(self._state_path, "r") as f:
+                    state = json.load(f)
+                if time.time() - state.get("updated_at", 0) < 15:
+                    state["is_leader"] = False
+                    state["active_pid"] = os.getpid()
+                    return state
+            except Exception:
+                pass
+
+        # If Leader, or if Follower without a fresh state file:
         info = await self._client.get_vram_info()
         if info:
             self._vram_total_mb = info.get("total_mb")
             self._vram_used_mb = info.get("used_mb")
             self._vram_free_mb = info.get("free_mb")
 
-        return {
+        counts = await self._store.get_queued_counts()
+        status = {
             "mode": self._mode.value,
             "loaded_model": self._loaded_model,
             "lm_studio_reachable": self._lms_reachable,
-            "queue": {
-                "cheap": self._cheap_q.qsize(),
-                "smart": self._smart_q.qsize(),
-            },
+            "queue": counts,
             "running_jobs": len(self._running),
             "vram_free_mb": self._vram_free_mb,
             "vram_total_mb": self._vram_total_mb,
@@ -128,37 +181,78 @@ class Scheduler:
             "uptime_seconds": round(time.monotonic() - self._start_time, 1),
             "last_resource_error": self._last_resource_error,
             "resource_diagnostics": self._last_resource_diagnostics,
+            "is_leader": self._is_leader,
+            "active_pid": os.getpid(),
         }
+        if self._is_leader:
+            self._write_state_file(status)
+        return status
+
+    def _write_state_file(self, status: dict) -> None:
+        try:
+            self._state_path.parent.mkdir(parents=True, exist_ok=True)
+            payload = dict(status)
+            payload["updated_at"] = time.time()
+            tmp = self._state_path.with_suffix(".tmp")
+            with open(tmp, "w") as f:
+                json.dump(payload, f)
+            tmp.replace(self._state_path)
+        except Exception as e:
+            log.debug("Failed writing state file: %s", e)
 
     # ──────────────────────────────────────────────
-    # Background tasks (started by MCP server)
+    # Background tasks
     # ──────────────────────────────────────────────
 
     async def run(self) -> None:
-        """Main scheduler loop. Run as a background asyncio task."""
-        log.info("Scheduler starting")
-        self._lms_reachable = await self._client.is_reachable()
-        if not self._lms_reachable:
-            log.warning("LM Studio not reachable at startup!")
+        """Main scheduler loop. Handles leader election and dispatch."""
+        log.info("Scheduler process starting (PID=%d)", os.getpid())
 
-        # Start background tasks
-        health_task = asyncio.create_task(self._health_loop(), name="health")
-        vram_task   = asyncio.create_task(self._vram_loop(), name="vram")
+        while not self._shutdown.is_set():
+            if self._should_acquire_lock and self._leader_lock:
+                acquired = self._leader_lock.try_acquire()
+                if not acquired:
+                    self._is_leader = False
+                    # Follower loop: wait 2s or until shutdown, then retry lock
+                    try:
+                        await asyncio.wait_for(self._shutdown.wait(), timeout=2.0)
+                        break
+                    except asyncio.TimeoutError:
+                        continue
+                self._is_leader = True
 
-        try:
-            await self._dispatch_loop()
-        finally:
-            health_task.cancel()
-            vram_task.cancel()
-            await asyncio.gather(health_task, vram_task, return_exceptions=True)
-            await self._graceful_unload()
-            log.info("Scheduler stopped")
+            # Leader initialized
+            log.info("Scheduler acquired leader lock (PID=%d)", os.getpid())
+            self._lms_reachable = await self._client.is_reachable()
+            if not self._lms_reachable:
+                log.warning("LM Studio not reachable at startup!")
+
+            # Reset any orphaned 'running' jobs from a previous leader
+            await self._store.reset_stale_running_jobs()
+
+            health_task = asyncio.create_task(self._health_loop(), name="health")
+            vram_task = asyncio.create_task(self._vram_loop(), name="vram")
+            state_task = asyncio.create_task(self._state_loop(), name="state")
+
+            try:
+                await self._dispatch_loop()
+            finally:
+                health_task.cancel()
+                vram_task.cancel()
+                state_task.cancel()
+                await asyncio.gather(health_task, vram_task, state_task, return_exceptions=True)
+                await self._graceful_unload()
+                if self._leader_lock:
+                    self._leader_lock.release()
+                log.info("Scheduler leader stopped (PID=%d)", os.getpid())
+            break
 
     def request_shutdown(self) -> None:
         self._shutdown.set()
+        self._wake_event.set()
 
     # ──────────────────────────────────────────────
-    # Dispatch loop
+    # Dispatch loop (Leader only)
     # ──────────────────────────────────────────────
 
     async def _dispatch_loop(self) -> None:
@@ -167,17 +261,17 @@ class Scheduler:
                 await asyncio.sleep(2)
                 continue
 
-            has_smart = not self._smart_q.empty()
-            has_cheap = not self._cheap_q.empty()
+            counts = await self._store.get_queued_counts()
+            has_smart = counts.get("smart", 0) > 0
+            has_cheap = counts.get("cheap", 0) > 0
 
             if has_smart and self._mode in (SchedulerMode.idle, SchedulerMode.cheap_ready):
-                # Drain remaining cheap jobs first (batch window)
                 if has_cheap:
                     log.info("Smart job pending — draining cheap queue first (window=%.1fs)",
                              self._cfg.scheduler.cheap_drain_window)
                     await self._drain_cheap_with_window()
 
-                # Now switch to smart mode
+                # Switch to smart mode
                 try:
                     await self._switch_to_smart()
                 except Exception as e:
@@ -191,25 +285,22 @@ class Scheduler:
                             "vram_info": getattr(e, "vram_info", None),
                             "suggestions": getattr(e, "suggestions", []),
                         }
-                    # Mark pending smart jobs as resource_error so they do not hang
-                    while not self._smart_q.empty():
-                        pjob = await self._smart_q.get()
-                        job = pjob.job
-                        if not self._is_cancelled(job):
-                            job.status = JobStatus.resource_error
-                            job.error_message = err_msg
-                            job.completed_at = utcnow()
-                            await self._store.update_job(job)
-                        self._smart_q.task_done()
+                    # Mark all queued smart jobs in SQLite as resource_error
+                    queued_smart = await self._store.list_jobs(
+                        status=JobStatus.queued, worker_class=WorkerClass.smart
+                    )
+                    for job in queued_smart:
+                        job.status = JobStatus.resource_error
+                        job.error_message = err_msg
+                        job.completed_at = utcnow()
+                        await self._store.update_job(job)
                     continue
 
-                if not self._smart_q.empty():
-                    pjob = await self._smart_q.get()
-                    if self._is_cancelled(pjob.job):
-                        self._smart_q.task_done()
-                        continue
-                    await self._run_job(pjob.job, self._cfg.smart)
-                    self._smart_q.task_done()
+                claimed_smart = await self._store.claim_queued_jobs(WorkerClass.smart, limit=1)
+                if claimed_smart:
+                    job = claimed_smart[0]
+                    if not self._is_cancelled(job):
+                        await self._run_job(job, self._cfg.smart)
 
                 # Switch back to cheap mode
                 try:
@@ -218,7 +309,6 @@ class Scheduler:
                     log.warning("Failed switching back to cheap: %s", e)
 
             elif has_cheap and self._mode in (SchedulerMode.idle, SchedulerMode.cheap_ready):
-                # Ensure cheap model is loaded
                 if self._mode == SchedulerMode.idle:
                     try:
                         await self._load_cheap()
@@ -233,69 +323,63 @@ class Scheduler:
                                 "vram_info": getattr(e, "vram_info", None),
                                 "suggestions": getattr(e, "suggestions", []),
                             }
-                        while not self._cheap_q.empty():
-                            pjob = await self._cheap_q.get()
-                            job = pjob.job
-                            if not self._is_cancelled(job):
-                                job.status = JobStatus.resource_error
-                                job.error_message = err_msg
-                                job.completed_at = utcnow()
-                                await self._store.update_job(job)
-                            self._cheap_q.task_done()
+                        queued_cheap = await self._store.list_jobs(
+                            status=JobStatus.queued, worker_class=WorkerClass.cheap
+                        )
+                        for job in queued_cheap:
+                            job.status = JobStatus.resource_error
+                            job.error_message = err_msg
+                            job.completed_at = utcnow()
+                            await self._store.update_job(job)
                         continue
 
-                # Dispatch up to parallel cheap jobs concurrently
-                batch = []
-                while (
-                    not self._cheap_q.empty()
-                    and len(batch) < self._cfg.cheap.parallel
-                ):
-                    pjob = await self._cheap_q.get()
-                    if not self._is_cancelled(pjob.job):
-                        batch.append(pjob.job)
-                    self._cheap_q.task_done()
-
-                if batch:
+                # Claim up to parallel cheap jobs
+                batch = await self._store.claim_queued_jobs(
+                    WorkerClass.cheap, limit=self._cfg.cheap.parallel
+                )
+                active_batch = [j for j in batch if not self._is_cancelled(j)]
+                if active_batch:
                     tasks = [
                         asyncio.create_task(
                             self._run_job(j, self._cfg.cheap),
                             name=f"job-{j.job_id[:8]}"
                         )
-                        for j in batch
+                        for j in active_batch
                     ]
-                    # Mark as batched if >1 concurrent
                     if len(tasks) > 1:
-                        for j in batch:
+                        for j in active_batch:
                             j.was_batched = True
                     await asyncio.gather(*tasks, return_exceptions=True)
 
             else:
-                # Nothing to do — idle sleep
-                if self._mode == SchedulerMode.cheap_ready and self._cheap_q.empty() and self._smart_q.empty():
-                    # Optional: unload to free VRAM after a period of inactivity
-                    # For now just sleep
+                # Idle sleep: wait on local wake event or 0.5s periodic check
+                try:
+                    await asyncio.wait_for(self._wake_event.wait(), timeout=0.5)
+                except asyncio.TimeoutError:
                     pass
-                await asyncio.sleep(0.5)
+                finally:
+                    self._wake_event.clear()
 
     async def _drain_cheap_with_window(self) -> None:
         """Run all currently-queued cheap jobs, with a short window for more to arrive."""
         deadline = asyncio.get_event_loop().time() + self._cfg.scheduler.cheap_drain_window
         while True:
-            if self._cheap_q.empty():
+            counts = await self._store.get_queued_counts()
+            if counts.get("cheap", 0) == 0:
                 remaining = deadline - asyncio.get_event_loop().time()
                 if remaining <= 0:
                     break
                 try:
-                    await asyncio.wait_for(
-                        self._cheap_q.get(),
-                        timeout=remaining,
-                    )
-                    break  # let dispatch loop handle it naturally
+                    await asyncio.wait_for(self._wake_event.wait(), timeout=remaining)
+                    self._wake_event.clear()
+                    break
                 except asyncio.TimeoutError:
                     break
+            else:
+                break
 
-        # Process whatever is in the cheap queue now
-        if not self._cheap_q.empty():
+        counts = await self._store.get_queued_counts()
+        if counts.get("cheap", 0) > 0:
             if self._mode == SchedulerMode.idle:
                 try:
                     await self._load_cheap()
@@ -303,28 +387,23 @@ class Scheduler:
                     err_msg = str(e)
                     log.error("Failed to load cheap model during drain: %s", err_msg)
                     self._last_resource_error = err_msg
-                    while not self._cheap_q.empty():
-                        pjob = await self._cheap_q.get()
-                        job = pjob.job
-                        if not self._is_cancelled(job):
-                            job.status = JobStatus.resource_error
-                            job.error_message = err_msg
-                            job.completed_at = utcnow()
-                            await self._store.update_job(job)
-                        self._cheap_q.task_done()
+                    queued_cheap = await self._store.list_jobs(
+                        status=JobStatus.queued, worker_class=WorkerClass.cheap
+                    )
+                    for job in queued_cheap:
+                        job.status = JobStatus.resource_error
+                        job.error_message = err_msg
+                        job.completed_at = utcnow()
+                        await self._store.update_job(job)
                     return
 
-            batch = []
-            while not self._cheap_q.empty():
-                pjob = await self._cheap_q.get()
-                if not self._is_cancelled(pjob.job):
-                    batch.append(pjob.job)
-                self._cheap_q.task_done()
-
-            # Run in sub-batches of size parallel
+            batch = await self._store.claim_queued_jobs(
+                WorkerClass.cheap, limit=self._cfg.cheap.parallel * 2
+            )
+            active_batch = [j for j in batch if not self._is_cancelled(j)]
             profile = self._cfg.cheap
-            for i in range(0, len(batch), profile.parallel):
-                sub = batch[i:i + profile.parallel]
+            for i in range(0, len(active_batch), profile.parallel):
+                sub = active_batch[i:i + profile.parallel]
                 if len(sub) > 1:
                     for j in sub:
                         j.was_batched = True
@@ -352,19 +431,16 @@ class Scheduler:
 
     async def _switch_to_smart(self) -> None:
         self._mode = SchedulerMode.draining
-        # Wait for any running cheap jobs to finish
         while self._running:
-            log.info("Waiting for %d running cheap job(s) to finish before smart switch...",
+            log.info("Waiting for %d running cheap job(s) before smart switch...",
                      len(self._running))
             await asyncio.sleep(1)
 
-        # Unload cheap
         if self._loaded_model:
             self._mode = SchedulerMode.smart_loading
             await self._client.unload_model(self._cfg.cheap.worker_class)
             self._loaded_model = None
 
-        # Load smart
         log.info("Loading smart model...")
         try:
             await self._client.load_model(self._cfg.smart)
@@ -380,9 +456,12 @@ class Scheduler:
         await self._client.unload_model(self._cfg.smart.worker_class)
         self._loaded_model = None
         self._mode = SchedulerMode.cheap_reloading
-        # Only reload cheap if there are cheap jobs waiting
-        if not self._cheap_q.empty():
-            await self._load_cheap()
+        counts = await self._store.get_queued_counts()
+        if counts.get("cheap", 0) > 0:
+            try:
+                await self._load_cheap()
+            except Exception as e:
+                log.error("Failed to reload cheap model: %s", e)
         else:
             self._mode = SchedulerMode.idle
 
@@ -392,17 +471,14 @@ class Scheduler:
 
     async def _run_job(self, job: Job, profile: WorkerProfile) -> None:
         """Execute a single job against the currently-loaded model."""
-        # Check if cancelled before even starting
-        if self._is_cancelled(job):
-            job.status = JobStatus.cancelled
-            job.completed_at = utcnow()
-            await self._store.update_job(job)
+        fresh = await self._store.get_job(job.job_id)
+        if fresh and fresh.status == JobStatus.cancelled:
             return
 
+        self._running.add(job.job_id)
         job.status = JobStatus.running
         job.started_at = utcnow()
         job.model_used = profile.lms_model_key
-        self._running.add(job.job_id)
         await self._store.update_job(job)
 
         timeout = job.timeout_seconds or profile.default_timeout
@@ -413,6 +489,9 @@ class Scheduler:
             messages.append({"role": "system", "content": job.system_prompt})
         messages.append({"role": "user", "content": job.user_prompt})
 
+        log.info("Starting job %s [%s] timeout=%.0fs max_tokens=%d",
+                 job.job_id[:8], profile.worker_class, timeout, max_tokens)
+
         try:
             result = await self._client.chat_complete(
                 model_identifier=profile.worker_class,
@@ -421,29 +500,35 @@ class Scheduler:
                 timeout=timeout,
             )
         except Exception as e:
-            result = None
+            log.error("Inference exception on job %s: %s", job.job_id[:8], e)
             job.status = JobStatus.model_error
-            job.error_message = f"Unexpected error during inference: {e}"
-            log.exception("Job %s inference error", job.job_id)
-        finally:
+            job.error_message = str(e)
+            job.completed_at = utcnow()
+            await self._store.update_job(job)
             self._running.discard(job.job_id)
-            self._cancelled.discard(job.job_id)
+            return
 
-        if result is not None:
-            job.input_tokens = result.input_tokens
-            job.output_tokens = result.output_tokens
-            job.finish_reason = result.finish_reason
+        self._running.discard(job.job_id)
 
-            if self._is_cancelled(job):
-                job.status = JobStatus.cancelled
-            elif result.finish_reason == "timeout":
+        fresh = await self._store.get_job(job.job_id)
+        if fresh and fresh.status == JobStatus.cancelled:
+            log.info("Job %s was cancelled during inference", job.job_id[:8])
+            return
+
+        job.input_tokens = result.input_tokens
+        job.output_tokens = result.output_tokens
+        job.finish_reason = result.finish_reason
+
+        if self._is_cancelled(job):
+            job.status = JobStatus.cancelled
+        else:
+            if result.finish_reason == "timeout":
                 job.status = JobStatus.model_error
                 job.error_message = f"Job timed out after {timeout}s"
             elif result.finish_reason == "error" or not result.text:
                 job.status = JobStatus.model_error
                 job.error_message = "Inference returned an error or empty response"
             elif result.finish_reason == "length":
-                # Context exhausted — try to get a handoff summary
                 job.status = JobStatus.context_exhausted
                 job.result_text = result.text
                 try:
@@ -498,3 +583,13 @@ class Scheduler:
                 self._vram_total_mb = info.get("total_mb")
                 self._vram_used_mb = info.get("used_mb")
                 self._vram_free_mb = info.get("free_mb")
+
+    async def _state_loop(self) -> None:
+        """Leader publishes state to scheduler_state.json every 5 seconds."""
+        while not self._shutdown.is_set():
+            try:
+                status = await self.get_status()
+                self._write_state_file(status)
+            except Exception as e:
+                log.debug("State loop error: %s", e)
+            await asyncio.sleep(5)

@@ -112,3 +112,5 @@ class SchedulerStatus(BaseModel):
     uptime_seconds: float
     last_resource_error: str | None = None
     resource_diagnostics: dict[str, Any] | None = None
+    is_leader: bool = True
+    active_pid: int | None = None

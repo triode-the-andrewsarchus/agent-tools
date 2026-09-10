@@ -351,3 +351,51 @@ async def test_cheap_load_failure_marks_job_resource_error(store):
     updated = await store.get_job(job.job_id)
     assert updated.status == JobStatus.resource_error
     assert "GPU load failed" in updated.error_message
+
+
+@pytest.mark.asyncio
+async def test_multi_instance_coordination(tmp_path, store):
+    """Multiple instances share DB; leader executes jobs submitted by follower."""
+    cfg = make_config()
+    lock_file = tmp_path / "shared_scheduler.lock"
+
+    client1 = make_mock_client(result_text="Leader response")
+    sched_leader = Scheduler(cfg, store, client1, lock_path=lock_file, acquire_lock=True)
+
+    client2 = make_mock_client(result_text="Follower client")
+    sched_follower = Scheduler(cfg, store, client2, lock_path=lock_file, acquire_lock=True)
+
+    # Start leader
+    leader_task = asyncio.create_task(sched_leader.run())
+    await asyncio.sleep(0.05)
+    assert sched_leader._is_leader is True
+
+    # Start follower
+    follower_task = asyncio.create_task(sched_follower.run())
+    await asyncio.sleep(0.05)
+    assert sched_follower._is_leader is False
+
+    # Follower submits a job
+    job = make_job(WorkerClass.cheap)
+    submitted = await sched_follower.submit(job)
+    assert submitted.status == JobStatus.queued
+
+    # Leader wakes up and processes the job from SQLite
+    sched_leader._wake_event.set()
+    await asyncio.sleep(0.15)
+
+    # Check job in store — completed by leader
+    persisted = await store.get_job(job.job_id)
+    assert persisted.status == JobStatus.completed
+    assert persisted.result_text == "Leader response"
+
+    # Stop leader; follower should be able to acquire lock
+    sched_leader.request_shutdown()
+    await leader_task
+
+    # Give follower time to acquire lock on next check
+    await asyncio.sleep(2.1)
+    assert sched_follower._is_leader is True
+
+    sched_follower.request_shutdown()
+    await follower_task
