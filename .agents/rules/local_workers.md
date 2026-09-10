@@ -1,3 +1,7 @@
+---
+trigger: always_on
+---
+
 # Local Worker Pool — Delegation Policy
 
 You have access to a local LLM worker pool via the `local_worker` MCP tools.
