@@ -1,0 +1,46 @@
+# Pre-validated worker configurations for the RTX 3090 (24 GB VRAM).
+#
+# IMPORTANT: Only edit these values after testing VRAM usage.
+# The scheduler uses exactly these parameters — no on-the-fly generation.
+#
+# Desktop + app overhead: ~4–5 GB (niri, apps, Antigravity, etc.)
+# Available for inference: ~19–20 GB when only scheduler is running.
+#
+# Smart model note: the 27B Q4_K_M model is ~16.3 GB weights. When LM Studio
+# loads it with gpu_offload="max" it tries to put everything on GPU, which
+# can fail if apps are already using VRAM. The scheduler unloads all other
+# models before loading smart, but desktop/app VRAM is non-negotiable (~4-5 GB).
+# With the scheduler unloading the cheap model first, the 27B should fit.
+# If load still fails, try gpu_offload = "0.9" to allow 10% CPU offload.
+
+[worker.cheap]
+# Qwen3.5-9B Q4_K_M: ~5 GB model weight + ~2 GB KV cache (2 parallel) = ~7 GB
+lms_model_key     = "qwen/qwen3.5-9b"
+context_length    = 8192
+parallel          = 2
+gpu_offload       = "max"
+max_output_tokens = 4096
+default_timeout   = 300         # seconds per job
+
+[worker.smart]
+# Qwen3.6-27B Q4_K_M: ~16.3 GB model weight + ~1.5 GB KV cache = ~17.8 GB
+# The scheduler ensures the cheap model is fully unloaded before loading smart.
+# gpu_offload="max" fills VRAM; LM Studio auto-determines optimal split.
+# If load fails with VRAM OOM, change gpu_offload to "0.85" or "0.80"
+# to spill part of the model to CPU RAM (slower but will fit).
+lms_model_key     = "qwen/qwen3.6-27b"
+context_length    = 4096
+parallel          = 1
+gpu_offload       = "max"
+max_output_tokens = 4096
+default_timeout   = 600         # seconds per job
+
+[scheduler]
+# Seconds to wait for additional cheap jobs before switching to smart mode.
+cheap_drain_window = 5.0
+
+# How often to poll LM Studio health (seconds).
+health_check_interval = 30
+
+# Days to retain completed/cancelled jobs in SQLite before pruning.
+job_retention_days = 7
