@@ -89,6 +89,17 @@ cheap worker → incomplete / context_exhausted / low confidence
               you synthesize final answer
 ```
 
+## GPU-only policy and handling `resource_error`
+
+There is **no CPU fallback** — running large models on CPU is too slow to be useful. If a model cannot fit in GPU VRAM (e.g. smart model on high desktop load), the job immediately returns `status="resource_error"`.
+
+When `status == "resource_error"`:
+- Inspect `error_message` — it details current VRAM headroom and actionable alternatives.
+- If a `smart` job fails due to VRAM OOM:
+  - **Downgrade to cheap worker**: `Qwen3.5-9B` uses only ~6.1 GB VRAM and fits with ample headroom.
+  - **Reduce context/prompt size**: saves KV cache memory.
+  - **Keep in supervisor**: do not offload to local LLM; handle directly yourself.
+
 ## Polling guidance
 
 - Cheap job typical latency: 10–60s (longer if model needs to load first time)

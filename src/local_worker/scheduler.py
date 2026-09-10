@@ -56,6 +56,10 @@ class Scheduler:
         self._start_time = time.monotonic()
         self._lms_reachable = False
         self._vram_free_mb: int | None = None
+        self._vram_total_mb: int | None = None
+        self._vram_used_mb: int | None = None
+        self._last_resource_error: str | None = None
+        self._last_resource_diagnostics: dict[str, Any] | None = None
 
         # Control
         self._shutdown = asyncio.Event()
@@ -102,6 +106,13 @@ class Scheduler:
 
     async def get_status(self) -> dict:
         """Return scheduler status dict for MCP."""
+        # Refresh VRAM info
+        info = await self._client.get_vram_info()
+        if info:
+            self._vram_total_mb = info.get("total_mb")
+            self._vram_used_mb = info.get("used_mb")
+            self._vram_free_mb = info.get("free_mb")
+
         return {
             "mode": self._mode.value,
             "loaded_model": self._loaded_model,
@@ -112,7 +123,11 @@ class Scheduler:
             },
             "running_jobs": len(self._running),
             "vram_free_mb": self._vram_free_mb,
+            "vram_total_mb": self._vram_total_mb,
+            "vram_used_mb": self._vram_used_mb,
             "uptime_seconds": round(time.monotonic() - self._start_time, 1),
+            "last_resource_error": self._last_resource_error,
+            "resource_diagnostics": self._last_resource_diagnostics,
         }
 
     # ──────────────────────────────────────────────
@@ -163,7 +178,31 @@ class Scheduler:
                     await self._drain_cheap_with_window()
 
                 # Now switch to smart mode
-                await self._switch_to_smart()
+                try:
+                    await self._switch_to_smart()
+                except Exception as e:
+                    err_msg = str(e)
+                    log.error("Failed to switch to smart model: %s", err_msg)
+                    self._last_resource_error = err_msg
+                    if hasattr(e, "vram_info"):
+                        self._last_resource_diagnostics = {
+                            "model_key": getattr(e, "model_key", None),
+                            "worker_class": getattr(e, "worker_class", None),
+                            "vram_info": getattr(e, "vram_info", None),
+                            "suggestions": getattr(e, "suggestions", []),
+                        }
+                    # Mark pending smart jobs as resource_error so they do not hang
+                    while not self._smart_q.empty():
+                        pjob = await self._smart_q.get()
+                        job = pjob.job
+                        if not self._is_cancelled(job):
+                            job.status = JobStatus.resource_error
+                            job.error_message = err_msg
+                            job.completed_at = utcnow()
+                            await self._store.update_job(job)
+                        self._smart_q.task_done()
+                    continue
+
                 if not self._smart_q.empty():
                     pjob = await self._smart_q.get()
                     if self._is_cancelled(pjob.job):
@@ -173,12 +212,37 @@ class Scheduler:
                     self._smart_q.task_done()
 
                 # Switch back to cheap mode
-                await self._switch_to_cheap()
+                try:
+                    await self._switch_to_cheap()
+                except Exception as e:
+                    log.warning("Failed switching back to cheap: %s", e)
 
             elif has_cheap and self._mode in (SchedulerMode.idle, SchedulerMode.cheap_ready):
                 # Ensure cheap model is loaded
                 if self._mode == SchedulerMode.idle:
-                    await self._load_cheap()
+                    try:
+                        await self._load_cheap()
+                    except Exception as e:
+                        err_msg = str(e)
+                        log.error("Failed to load cheap model: %s", err_msg)
+                        self._last_resource_error = err_msg
+                        if hasattr(e, "vram_info"):
+                            self._last_resource_diagnostics = {
+                                "model_key": getattr(e, "model_key", None),
+                                "worker_class": getattr(e, "worker_class", None),
+                                "vram_info": getattr(e, "vram_info", None),
+                                "suggestions": getattr(e, "suggestions", []),
+                            }
+                        while not self._cheap_q.empty():
+                            pjob = await self._cheap_q.get()
+                            job = pjob.job
+                            if not self._is_cancelled(job):
+                                job.status = JobStatus.resource_error
+                                job.error_message = err_msg
+                                job.completed_at = utcnow()
+                                await self._store.update_job(job)
+                            self._cheap_q.task_done()
+                        continue
 
                 # Dispatch up to parallel cheap jobs concurrently
                 batch = []
@@ -226,10 +290,6 @@ class Scheduler:
                         self._cheap_q.get(),
                         timeout=remaining,
                     )
-                    # Got one — put it back and continue draining
-                    # (We can't unget, so just process it immediately)
-                    # Actually process it
-                    # Re-enter dispatch for cheap jobs
                     break  # let dispatch loop handle it naturally
                 except asyncio.TimeoutError:
                     break
@@ -237,7 +297,22 @@ class Scheduler:
         # Process whatever is in the cheap queue now
         if not self._cheap_q.empty():
             if self._mode == SchedulerMode.idle:
-                await self._load_cheap()
+                try:
+                    await self._load_cheap()
+                except Exception as e:
+                    err_msg = str(e)
+                    log.error("Failed to load cheap model during drain: %s", err_msg)
+                    self._last_resource_error = err_msg
+                    while not self._cheap_q.empty():
+                        pjob = await self._cheap_q.get()
+                        job = pjob.job
+                        if not self._is_cancelled(job):
+                            job.status = JobStatus.resource_error
+                            job.error_message = err_msg
+                            job.completed_at = utcnow()
+                            await self._store.update_job(job)
+                        self._cheap_q.task_done()
+                    return
 
             batch = []
             while not self._cheap_q.empty():
@@ -418,4 +493,8 @@ class Scheduler:
     async def _vram_loop(self) -> None:
         while not self._shutdown.is_set():
             await asyncio.sleep(15)
-            self._vram_free_mb = await self._client.get_vram_free_mb()
+            info = await self._client.get_vram_info()
+            if info:
+                self._vram_total_mb = info.get("total_mb")
+                self._vram_used_mb = info.get("used_mb")
+                self._vram_free_mb = info.get("free_mb")

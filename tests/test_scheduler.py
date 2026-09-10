@@ -11,7 +11,7 @@ import pytest
 
 from local_worker.config import AppConfig, WorkerProfile, SchedulerConfig
 from local_worker.db import JobStore
-from local_worker.lms_client import ChatResult, LMSClient
+from local_worker.lms_client import ChatResult, LMSClient, ModelLoadError
 from local_worker.models import Job, JobStatus, SchedulerMode, WorkerClass
 from local_worker.scheduler import Scheduler
 
@@ -58,6 +58,7 @@ def make_mock_client(
     client.unload_model = AsyncMock()
     client.unload_all = AsyncMock()
     client.get_vram_free_mb = AsyncMock(return_value=8000)
+    client.get_vram_info = AsyncMock(return_value={"total_mb": 24576, "used_mb": 16576, "free_mb": 8000})
     client.chat_complete = AsyncMock(return_value=ChatResult(
         text=result_text,
         finish_reason=finish_reason,
@@ -277,3 +278,76 @@ async def test_db_list_and_filter(store):
 
     running = await store.list_jobs(status=JobStatus.running)
     assert len(running) == 1
+
+
+@pytest.mark.asyncio
+async def test_smart_load_failure_marks_job_resource_error(store):
+    """When smart model cannot load (OOM), job is marked resource_error and scheduler continues."""
+    cfg = make_config()
+    client = make_mock_client()
+
+    oom_err = ModelLoadError(
+        "GPU load failed for 'test/smart-model' (smart worker). No CPU fallback (GPU-only policy). "
+        "VRAM status: 2500 MB free / 24576 MB total. Actionable alternatives: Downgrade to 'cheap' worker class",
+        model_key="test/smart-model",
+        worker_class="smart",
+        vram_info={"total_mb": 24576, "used_mb": 22076, "free_mb": 2500},
+        is_oom=True,
+        suggestions=["Downgrade to 'cheap' worker class: Qwen3.5-9B requires ~6.1 GB VRAM"],
+    )
+    client.load_model = AsyncMock(side_effect=oom_err)
+
+    sched = Scheduler(cfg, store, client)
+    sched._lms_reachable = True
+
+    job = make_job(WorkerClass.smart)
+    await sched.submit(job)
+
+    # Run dispatch loop for one iteration using a timeout task
+    dispatch_task = asyncio.create_task(sched._dispatch_loop())
+    await asyncio.sleep(0.1)
+    sched.request_shutdown()
+    await dispatch_task
+
+    updated = await store.get_job(job.job_id)
+    assert updated.status == JobStatus.resource_error
+    assert "GPU load failed" in updated.error_message
+    assert "Downgrade to 'cheap'" in updated.error_message
+
+    # Scheduler status reflects the last resource error
+    status = await sched.get_status()
+    assert status["last_resource_error"] is not None
+    assert "GPU load failed" in status["last_resource_error"]
+    assert status["resource_diagnostics"]["suggestions"]
+
+
+@pytest.mark.asyncio
+async def test_cheap_load_failure_marks_job_resource_error(store):
+    """When cheap model cannot load (OOM), job is marked resource_error."""
+    cfg = make_config()
+    client = make_mock_client()
+
+    oom_err = ModelLoadError(
+        "GPU load failed for 'test/cheap-model' (cheap worker). Free desktop GPU memory.",
+        model_key="test/cheap-model",
+        worker_class="cheap",
+        vram_info={"total_mb": 24576, "used_mb": 24000, "free_mb": 576},
+        is_oom=True,
+        suggestions=["Free desktop GPU memory"],
+    )
+    client.load_model = AsyncMock(side_effect=oom_err)
+
+    sched = Scheduler(cfg, store, client)
+    sched._lms_reachable = True
+
+    job = make_job(WorkerClass.cheap)
+    await sched.submit(job)
+
+    dispatch_task = asyncio.create_task(sched._dispatch_loop())
+    await asyncio.sleep(0.1)
+    sched.request_shutdown()
+    await dispatch_task
+
+    updated = await store.get_job(job.job_id)
+    assert updated.status == JobStatus.resource_error
+    assert "GPU load failed" in updated.error_message

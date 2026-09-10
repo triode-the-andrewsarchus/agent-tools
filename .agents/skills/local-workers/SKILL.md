@@ -96,7 +96,7 @@ No inputs required. Returns:
 | `context_exhausted` | Hit token limit — check `result_text` + `handoff_summary` |
 | `cancelled` | Cancelled by caller |
 | `model_error` | Inference error or timeout — check `error_message` |
-| `resource_error` | LM Studio not reachable |
+| `resource_error` | LM Studio unreachable or GPU VRAM insufficient (GPU-only policy) — check `error_message` for downgrade alternatives |
 | `tool_error` | Scheduler/tool internal error |
 | `capability_mismatch` | Unsupported worker class |
 

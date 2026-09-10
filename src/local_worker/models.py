@@ -107,4 +107,8 @@ class SchedulerStatus(BaseModel):
     queue: dict[str, int]           # {"cheap": N, "smart": N}
     running_jobs: int
     vram_free_mb: int | None
+    vram_total_mb: int | None = None
+    vram_used_mb: int | None = None
     uptime_seconds: float
+    last_resource_error: str | None = None
+    resource_diagnostics: dict[str, Any] | None = None
