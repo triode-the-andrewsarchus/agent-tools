@@ -3,37 +3,37 @@
 # IMPORTANT: Only edit these values after testing VRAM usage.
 # The scheduler uses exactly these parameters — no on-the-fly generation.
 #
-# Desktop + app overhead: ~4–5 GB (niri, apps, Antigravity, etc.)
-# Available for inference: ~19–20 GB when only scheduler is running.
-#
-# Smart model note: the 27B Q4_K_M model is ~16.3 GB weights. When LM Studio
-# loads it with gpu_offload="max" it tries to put everything on GPU, which
-# can fail if apps are already using VRAM. The scheduler unloads all other
-# models before loading smart, but desktop/app VRAM is non-negotiable (~4-5 GB).
-# With the scheduler unloading the cheap model first, the 27B should fit.
-# If load still fails, try gpu_offload = "0.9" to allow 10% CPU offload.
+# VRAM budget notes:
+#   Desktop + apps: ~4-5 GB (niri, LM Studio, Antigravity IDE, etc.)
+#   Requirement: keep VRAM overhead graceful — ~3.5–4 GB free is fine,
+#   hard OOM is not. The load_model retry handles VRAM fluctuations:
+#     - Retries 'max' 3× with 5s delays (VRAM usage fluctuates)
+#     - Falls through 0.90 → 0.85 → 0.75 GPU fractions before giving up
+#     - gpu_fallback_cpu = true enables CPU fallback as a last resort
+#       (very slow on 27B — only set if you need it)
 
 [worker.cheap]
-# Qwen3.5-9B Q4_K_M: ~5 GB model weight + ~2 GB KV cache (2 parallel) = ~7 GB
+# Qwen3.5-9B Q4_K_M: ~5 GB model + ~2 GB KV (2 parallel) = ~7 GB
 lms_model_key     = "qwen/qwen3.5-9b"
 context_length    = 8192
 parallel          = 2
 gpu_offload       = "max"
 max_output_tokens = 4096
-default_timeout   = 300         # seconds per job
+default_timeout   = 300
+# gpu_fallback_cpu = false  # (default) cheap model should always fit on GPU
 
 [worker.smart]
-# Qwen3.6-27B Q4_K_M: ~16.3 GB model weight + ~1.5 GB KV cache = ~17.8 GB
-# The scheduler ensures the cheap model is fully unloaded before loading smart.
-# gpu_offload="max" fills VRAM; LM Studio auto-determines optimal split.
-# If load fails with VRAM OOM, change gpu_offload to "0.85" or "0.80"
-# to spill part of the model to CPU RAM (slower but will fit).
+# Qwen3.6-27B Q4_K_M: ~16.3 GB model + ~1 GB KV = ~17.3 GB
+# The scheduler unloads the cheap model before loading this.
+# With ~5 GB desktop overhead + 17.3 GB model = ~22.3 GB — fits with margin.
+# Retry logic handles momentary VRAM spikes from other apps.
 lms_model_key     = "qwen/qwen3.6-27b"
-context_length    = 4096
+context_length    = 8192
 parallel          = 1
 gpu_offload       = "max"
-max_output_tokens = 4096
-default_timeout   = 600         # seconds per job
+max_output_tokens = 8192
+default_timeout   = 600
+# gpu_fallback_cpu = false  # Set to true if you want CPU fallback when GPU fully fails
 
 [scheduler]
 # Seconds to wait for additional cheap jobs before switching to smart mode.

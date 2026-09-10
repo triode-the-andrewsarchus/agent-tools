@@ -17,6 +17,7 @@ class WorkerProfile:
     gpu_offload: str
     max_output_tokens: int
     default_timeout: float
+    gpu_fallback_cpu: bool = False  # Set True to allow CPU fallback when all GPU attempts fail
 
 
 @dataclass
@@ -55,6 +56,7 @@ def load_config() -> AppConfig:
             gpu_offload=d["gpu_offload"],
             max_output_tokens=d["max_output_tokens"],
             default_timeout=float(d["default_timeout"]),
+            gpu_fallback_cpu=bool(d.get("gpu_fallback_cpu", False)),
         )
 
     sched = raw.get("scheduler", {})

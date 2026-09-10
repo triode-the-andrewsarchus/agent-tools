@@ -60,19 +60,34 @@ class LMSClient:
     async def load_model(self, profile: WorkerProfile) -> None:
         """Load a model via lms CLI. Blocks until loaded.
 
-        If the primary gpu_offload setting fails with a CUDA buffer allocation
-        error (VRAM too full), retries with progressively lower GPU offload
-        ratios before falling back to CPU-only mode.
+        Strategy when VRAM is tight:
+          1. Retry 'max' up to MAX_GPU_RETRIES times with short waits — VRAM
+             usage from other apps fluctuates, so a brief wait often frees enough.
+          2. Step through high partial-GPU fractions (0.90 → 0.85 → 0.75).
+             These keep most layers on GPU for usable performance.
+          3. Only fall back to CPU ('off') if profile.gpu_fallback_cpu is True.
+             CPU inference on a 27B model is extremely slow; prefer a clean
+             model_error so the caller can decide what to do.
         """
-        # Fallback offload sequence: primary → reduced GPU → minimal GPU → CPU only
-        gpu_offloads = [profile.gpu_offload]
+        MAX_GPU_RETRIES = 3
+        RETRY_WAIT = 5  # seconds between max-offload retries
+
+        # Build the attempt sequence
         if profile.gpu_offload == "max":
-            gpu_offloads += ["0.25", "0.20", "off"]
-        elif profile.gpu_offload not in ("off",):
-            gpu_offloads += ["off"]
+            # Retry full-GPU first, then step down through high-GPU fractions
+            attempts = [("max", RETRY_WAIT)] * MAX_GPU_RETRIES
+            attempts += [(f, 2) for f in ("0.90", "0.85", "0.75")]
+        else:
+            # Use the configured value directly (no retries for explicit fractions)
+            attempts = [(profile.gpu_offload, 0)]
+
+        # Optionally allow CPU fallback
+        if getattr(profile, "gpu_fallback_cpu", False):
+            attempts += [("off", 0)]
 
         last_error: str = ""
-        for gpu_setting in gpu_offloads:
+        seen_gpu_settings: list[str] = []
+        for gpu_setting, wait_on_fail in attempts:
             cmd = [
                 self._cli_path, "load", profile.lms_model_key,
                 "-y",
@@ -81,7 +96,15 @@ class LMSClient:
                 "--gpu", gpu_setting,
                 "--identifier", profile.worker_class,
             ]
-            log.info("Loading model (gpu=%s): %s", gpu_setting, " ".join(cmd))
+            attempt_label = f"gpu={gpu_setting}" + (
+                f" (retry {seen_gpu_settings.count(gpu_setting) + 1}/{MAX_GPU_RETRIES})"
+                if gpu_setting == "max" and seen_gpu_settings.count(gpu_setting) > 0
+                else ""
+            )
+            log.info("Loading model [%s]: %s %s",
+                     attempt_label, profile.lms_model_key, profile.worker_class)
+            seen_gpu_settings.append(gpu_setting)
+
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
@@ -89,19 +112,29 @@ class LMSClient:
             )
             stdout, _ = await proc.communicate()
             if proc.returncode == 0:
-                log.info("Model loaded: %s as '%s' (gpu=%s)",
-                         profile.lms_model_key, profile.worker_class, gpu_setting)
+                log.info("Model loaded: %s as '%s' [%s]",
+                         profile.lms_model_key, profile.worker_class, attempt_label)
                 return
+
             msg = stdout.decode(errors="replace").strip() if stdout else "unknown error"
             last_error = msg
-            if "unable to allocate CUDA" in msg or "CUDA0 buffer" in msg:
-                log.warning("VRAM OOM with gpu=%s, retrying with lower offload...", gpu_setting)
-                await asyncio.sleep(1)
+            is_vram_oom = "unable to allocate CUDA" in msg or "CUDA0 buffer" in msg
+
+            if is_vram_oom:
+                log.warning("VRAM OOM [%s] — waiting %ds before next attempt...",
+                            attempt_label, wait_on_fail)
+                if wait_on_fail > 0:
+                    await asyncio.sleep(wait_on_fail)
                 continue
+
             # Non-VRAM error — don't retry
+            log.error("Non-VRAM load error [%s]: %s", attempt_label, msg[:200])
             break
 
-        raise RuntimeError(f"lms load failed after all GPU offload attempts: {last_error}")
+        raise RuntimeError(
+            f"lms load failed for {profile.lms_model_key} after all attempts. "
+            f"Last error: {last_error[-300:] if last_error else 'unknown'}"
+        )
 
     async def unload_model(self, identifier: str) -> None:
         """Unload a model by its identifier."""
