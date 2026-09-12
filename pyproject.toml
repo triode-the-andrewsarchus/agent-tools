@@ -1,0 +1,31 @@
+[project]
+name = "architecture-fitness"
+version = "0.1.0"
+description = "Local, repository-agnostic architecture-fitness and complexity feedback system for coding agents"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp[cli]>=2.2.0",
+    "pydantic>=2.0",
+    "lizard>=1.24.0",
+    "pathspec>=0.12.0",
+]
+
+[project.scripts]
+architecture-fitness-mcp = "architecture_fitness.mcp_server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/architecture_fitness"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+]
