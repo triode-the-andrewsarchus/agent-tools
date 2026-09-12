@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>API Reference: ConnectionManager - AsyncDriver Documentation</title>
+</head>
+<body>
+  <div class="top-nav">
+    <span class="brand">AsyncDriver Docs v3.4</span>
+    <input type="search" placeholder="Search docs (Press '/' to focus)">
+  </div>
+
+  <nav class="sidebar-toc">
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#installation">Installation</a></li>
+      <li><a href="#connection-manager">ConnectionManager</a></li>
+      <li><a href="#methods">Methods</a></li>
+      <li><a href="#troubleshooting">Troubleshooting</a></li>
+    </ul>
+  </nav>
+
+  <div class="main-content">
+    <h1 id="connection-manager">ConnectionManager</h1>
+    <p>The <code>ConnectionManager</code> class coordinates asynchronous TCP and TLS connection pooling with exponential backoff retries.</p>
+
+    <h2>Constructor Parameters</h2>
+    <table border="1">
+      <thead>
+        <tr>
+          <th>Parameter</th>
+          <th>Type</th>
+          <th>Default</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>host</code></td>
+          <td><code>str</code></td>
+          <td><em>Required</em></td>
+          <td>The target server hostname or IPv4/IPv6 address.</td>
+        </tr>
+        <tr>
+          <td><code>port</code></td>
+          <td><code>int</code></td>
+          <td><code>5432</code></td>
+          <td>Network port to connect to.</td>
+        </tr>
+        <tr>
+          <td><code>pool_size</code></td>
+          <td><code>int</code></td>
+          <td><code>10</code></td>
+          <td>Maximum concurrent established connections in pool.</td>
+        </tr>
+        <tr>
+          <td><code>timeout</code></td>
+          <td><code>float</code></td>
+          <td><code>30.0</code></td>
+          <td>Socket connection timeout in seconds.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Example Usage</h2>
+    <p>Below is a minimal code example illustrating connection initialization:</p>
+    <pre><code class="language-python">import asyncio
+from asyncdriver import ConnectionManager
+
+async def main():
+    pool = ConnectionManager(host="db.internal.net", port=5432, pool_size=20)
+    await pool.connect()
+    async with pool.acquire() as conn:
+        result = await conn.query("SELECT id, name FROM users LIMIT 10;")
+        for row in result:
+            print(row)
+    await pool.close()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+</code></pre>
+
+    <h2>Error Handling</h2>
+    <p>If a connection drops unexpectedly during a transaction, <code>ConnectionResetError</code> is raised. The pool automatically attempts to restore healthy connections according to the configured retry policy.</p>
+  </div>
+
+  <div class="page-footer">
+    <div class="feedback">Was this page helpful? <button>Yes</button> <button>No</button></div>
+    <p>&copy; 2026 AsyncDriver Open Source Project. Licensed under MIT.</p>
+  </div>
+</body>
+</html>
