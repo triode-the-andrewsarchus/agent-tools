@@ -1,0 +1,31 @@
+[project]
+name = "local-worker"
+version = "0.1.0"
+description = "Local LLM worker pool with MCP interface for Antigravity"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp[cli]>=2.2.0",
+    "aiohttp>=3.13",
+    "aiosqlite>=0.21",
+    "pydantic>=2.0",
+]
+
+[project.scripts]
+local-worker-mcp = "local_worker.mcp_server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/local_worker"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+]
