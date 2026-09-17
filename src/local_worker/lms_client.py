@@ -133,6 +133,9 @@ class LMSClient:
                 return
 
             msg = stdout.decode(errors="replace").strip() if stdout else "unknown error"
+            if "already exists" in msg.lower():
+                log.info("Model '%s' is already loaded in LM Studio", profile.worker_class)
+                return
             last_error = msg
             is_vram_oom = ("unable to allocate CUDA" in msg or "CUDA0 buffer" in msg or "out of memory" in msg.lower())
 
@@ -265,8 +268,13 @@ class LMSClient:
 
             choice = data["choices"][0]
             usage = data.get("usage", {})
+            msg = choice.get("message", {})
+            content = msg.get("content") or ""
+            reasoning = msg.get("reasoning_content") or ""
+            # If content is empty (e.g. generation ended while still thinking), fallback to reasoning
+            text = content if content else reasoning
             return ChatResult(
-                text=choice["message"]["content"],
+                text=text,
                 finish_reason=choice.get("finish_reason", "stop"),
                 input_tokens=usage.get("prompt_tokens"),
                 output_tokens=usage.get("completion_tokens"),

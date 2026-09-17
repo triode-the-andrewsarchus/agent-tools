@@ -213,7 +213,7 @@ async def async_main() -> None:
     await client.start()
 
     # Scheduler
-    _scheduler = Scheduler(cfg, _store, client)
+    _scheduler = Scheduler(cfg, _store, client, reload_config=True)
     sched_task = asyncio.create_task(_scheduler.run(), name="scheduler")
 
     # MCP server (blocks until stdio closes)

@@ -4,35 +4,32 @@
 # The scheduler uses exactly these parameters — no on-the-fly generation.
 #
 # Hardware & VRAM budget:
-#   GPU: NVIDIA RTX 3090 (24 GB VRAM)
-#   Desktop + apps overhead: ~4-5 GB (niri, LM Studio, Antigravity IDE, etc.)
-#   Target headroom: ~3.5–4 GB free VRAM (graceful headroom, hard OOM avoided)
+#   GPU: NVIDIA RTX 3090 (24 GB VRAM / 24,576 MiB)
+#   Desktop baseline overhead: ~2.3-2.6 GB (niri, LM Studio, Antigravity IDE, Alacritty)
+#   Target headroom: >4.5 GB free VRAM (graceful headroom, zero RAM spilling)
 #   Execution policy: GPU only. No CPU fallback.
 #   If a model cannot fit in GPU VRAM, a structured resource_error is returned
 #   with available VRAM stats and actionable downgrade recommendations.
 
 [worker.cheap]
-# Qwen3.5-9B Q4_K_M: ~6.1 GB VRAM loaded at context_length=8192 (parallel=2)
-# Fits comfortably alongside desktop apps with plenty of VRAM headroom.
-# (Alternative downloaded variant: unsloth/qwen3.5-9b, Q4_K_S, ~6.7 GB VRAM)
+# Qwen3.5-9B Q4_K_M: ~7.3 GB VRAM loaded at context_length=32768 (parallel=2)
+# Uses Grouped Query Attention (GQA); total VRAM under 10 GB, leaving ~14.5 GB headroom.
 lms_model_key     = "qwen/qwen3.5-9b"
-context_length    = 8192
+context_length    = 32768
 parallel          = 2
 gpu_offload       = "max"
-max_output_tokens = 4096
+max_output_tokens = 8192
 default_timeout   = 300
 
 [worker.smart]
-# Qwen3.6-27B Q4_K_M: ~16.3 GB model + KV cache
-# The scheduler unloads the cheap model before loading this.
-# When desktop overhead is low, fits at gpu=max. If VRAM is tight,
-# the loader retries full GPU and steps down to high GPU fractions (0.90->0.85->0.75).
-# If all GPU attempts fail, fails cleanly with resource_error and downgrade options.
+# Qwen3.6-27B Q4_K_M: ~16.4 GB model + KV cache loaded at context_length=32768 (parallel=1)
+# Uses GQA (4 KV heads); total VRAM ~19.6 GB with desktop, leaving ~5.0 GB headroom.
+# Unloads cheap model before loading. Sequential execution.
 lms_model_key     = "qwen/qwen3.6-27b"
-context_length    = 8192
+context_length    = 32768
 parallel          = 1
 gpu_offload       = "max"
-max_output_tokens = 8192
+max_output_tokens = 16384
 default_timeout   = 600
 
 [scheduler]

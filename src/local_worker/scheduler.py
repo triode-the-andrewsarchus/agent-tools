@@ -23,7 +23,7 @@ from datetime import timezone
 from pathlib import Path
 from typing import Any
 
-from .config import AppConfig, WorkerProfile
+from .config import AppConfig, WorkerProfile, load_config
 from .db import JobStore
 from .lms_client import LMSClient
 from .models import Job, JobStatus, SchedulerMode, WorkerClass, utcnow
@@ -83,10 +83,12 @@ class Scheduler:
         client: LMSClient,
         lock_path: Path | None = None,
         acquire_lock: bool = True,
+        reload_config: bool = False,
     ) -> None:
         self._cfg = cfg
         self._store = store
         self._client = client
+        self._reload_config = reload_config
 
         # Coordination
         is_memory_db = str(cfg.db_path) == ":memory:"
@@ -420,6 +422,11 @@ class Scheduler:
     async def _load_cheap(self) -> None:
         self._mode = SchedulerMode.cheap_loading
         log.info("Loading cheap model...")
+        if self._reload_config:
+            try:
+                self._cfg = load_config()
+            except Exception as e:
+                log.warning("Could not reload config from disk, using existing: %s", e)
         try:
             await self._client.load_model(self._cfg.cheap)
             self._loaded_model = self._cfg.cheap.worker_class
@@ -442,6 +449,11 @@ class Scheduler:
             self._loaded_model = None
 
         log.info("Loading smart model...")
+        if self._reload_config:
+            try:
+                self._cfg = load_config()
+            except Exception as e:
+                log.warning("Could not reload config from disk, using existing: %s", e)
         try:
             await self._client.load_model(self._cfg.smart)
             self._loaded_model = self._cfg.smart.worker_class
