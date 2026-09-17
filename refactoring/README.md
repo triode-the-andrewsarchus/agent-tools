@@ -1,4 +1,4 @@
-# Architecture Fitness for Antigravity & Codex (`antigravity_with_refactoring`)
+# Architecture Fitness for Antigravity & Codex (`refactoring`)
 
 A local, repository-agnostic architecture-fitness and complexity feedback system designed for coding agents (Google Antigravity, OpenAI Codex CLI, and the Codex IDE extension).
 
@@ -89,7 +89,7 @@ Changes are categorized into four states:
 
 ```bash
 # Clone and enter directory
-cd antigravity_with_refactoring
+cd refactoring
 
 # Create virtual environment and install package
 uv venv .venv
@@ -142,34 +142,34 @@ This automatically:
 To register manually using the Codex CLI:
 ```bash
 codex mcp add architecture_fitness \
-  --env PYTHONPATH=/home/vega/Documents/git/local/antigravity_with_refactoring/src \
+  --env PYTHONPATH=/home/vega/Documents/git/local/agent-tools/refactoring/src \
   --env PATH=/home/vega/.local/bin:/usr/local/bin:/usr/bin:/bin \
-  -- /home/vega/Documents/git/local/antigravity_with_refactoring/.venv/bin/python -m architecture_fitness.mcp_server
+  -- /home/vega/Documents/git/local/agent-tools/refactoring/.venv/bin/python -m architecture_fitness.mcp_server
 ```
 
 #### C. Manual Config (`~/.codex/config.toml` or Project `.codex/config.toml`)
 Alternatively, add the server definition directly to TOML configuration:
 ```toml
 [mcp_servers.architecture_fitness]
-command = "/home/vega/Documents/git/local/antigravity_with_refactoring/.venv/bin/python"
+command = "/home/vega/Documents/git/local/agent-tools/refactoring/.venv/bin/python"
 args = ["-m", "architecture_fitness.mcp_server"]
 
 [mcp_servers.architecture_fitness.env]
-PYTHONPATH = "/home/vega/Documents/git/local/antigravity_with_refactoring/src"
+PYTHONPATH = "/home/vega/Documents/git/local/agent-tools/refactoring/src"
 PATH = "/home/vega/.local/bin:/usr/local/bin:/usr/bin:/bin"
 ```
 
 #### D. Global Skills Symlinks
 Link the architecture skills into `~/.codex/skills/` so Codex can discover and invoke the skill workflows:
 ```bash
-ln -sfn /home/vega/Documents/git/local/antigravity_with_refactoring/.agents/skills/architecture-check ~/.codex/skills/architecture-check
-ln -sfn /home/vega/Documents/git/local/antigravity_with_refactoring/.agents/skills/architecture-refactor ~/.codex/skills/architecture-refactor
-ln -sfn /home/vega/Documents/git/local/antigravity_with_refactoring/.agents/skills/architecture-review ~/.codex/skills/architecture-review
+ln -sfn /home/vega/Documents/git/local/agent-tools/refactoring/.agents/skills/architecture-check ~/.codex/skills/architecture-check
+ln -sfn /home/vega/Documents/git/local/agent-tools/refactoring/.agents/skills/architecture-refactor ~/.codex/skills/architecture-refactor
+ln -sfn /home/vega/Documents/git/local/agent-tools/refactoring/.agents/skills/architecture-review ~/.codex/skills/architecture-review
 ```
 
 #### E. Global & Project Agent Guidance (`AGENTS.md`)
 - **Global**: Appended to `~/.codex/AGENTS.md` so any project worked on by Codex abides by benefit-of-the-doubt and regression-checking rules.
-- **Repository**: A dedicated [AGENTS.md](file:///home/vega/Documents/git/local/antigravity_with_refactoring/AGENTS.md) is included in the project root with test commands, MCP signatures, and discipline principles.
+- **Repository**: A dedicated [AGENTS.md](file:///home/vega/Documents/git/local/agent-tools/refactoring/AGENTS.md) is included in the project root with test commands, MCP signatures, and discipline principles.
 
 #### F. Using with the Codex IDE Extension
 - The Codex VS Code extension automatically picks up MCP servers configured in `~/.codex/config.toml` and workspace `.codex/config.toml`.
@@ -189,10 +189,10 @@ ln -sfn /home/vega/Documents/git/local/antigravity_with_refactoring/.agents/skil
 {
   "mcpServers": {
     "architecture_fitness": {
-      "command": "/home/vega/Documents/git/local/antigravity_with_refactoring/.venv/bin/python",
+      "command": "/home/vega/Documents/git/local/agent-tools/refactoring/.venv/bin/python",
       "args": ["-m", "architecture_fitness.mcp_server"],
       "env": {
-        "PYTHONPATH": "/home/vega/Documents/git/local/antigravity_with_refactoring/src",
+        "PYTHONPATH": "/home/vega/Documents/git/local/agent-tools/refactoring/src",
         "PATH": "/home/vega/.local/bin:/usr/local/bin:/usr/bin:/bin"
       }
     }

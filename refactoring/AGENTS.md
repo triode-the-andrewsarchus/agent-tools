@@ -1,4 +1,4 @@
-# AGENTS.md — Architecture Fitness (`antigravity_with_refactoring`)
+# AGENTS.md — Architecture Fitness (`refactoring`)
 
 This repository provides a local, repository-agnostic architecture-fitness and complexity feedback system designed for coding agents (including Google Antigravity and OpenAI Codex CLI / IDE extension). It continuously inspects structural complexity, duplication, and coupling using Lizard, jscpd, and Valknut, exposed via the Model Context Protocol (MCP) and agent skills.
 
@@ -7,7 +7,7 @@ This repository provides a local, repository-agnostic architecture-fitness and c
 ## Environment & Architecture
 
 - **Python Version**: Python >= 3.11
-- **Virtual Environment**: `.venv` (located at `/home/vega/Documents/git/local/antigravity_with_refactoring/.venv`)
+- **Virtual Environment**: `.venv` (located at `/home/vega/Documents/git/local/agent-tools/refactoring/.venv`)
 - **Package Source**: `src/` (root module: `architecture_fitness`)
 - **Analyzers**:
   - **Lizard** (1.24.0): Cyclomatic complexity (CCN), parameter count, token count, NLOC.

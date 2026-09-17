@@ -48,7 +48,7 @@ Powered by **Pulpie Orange Small** (`feyninc/pulpie-orange-small`, 210M paramete
 
 ### 2. Create Virtual Environment & Install
 ```bash
-cd /home/vega/Documents/git/local/antigravity_with_pulpie
+cd /home/vega/Documents/git/local/agent-tools/pulpie
 uv venv --python 3.12 .venv
 uv pip install --python .venv/bin/python -e . ".[dev]"
 ```
@@ -71,25 +71,25 @@ Pulpie works seamlessly across both **Google Antigravity** and **OpenAI Codex** 
 Run the following one-line command to register Pulpie globally in Codex:
 ```bash
 codex mcp add pulpie \
-  --env PYTHONPATH=/home/vega/Documents/git/local/antigravity_with_pulpie/src \
-  -- /home/vega/Documents/git/local/antigravity_with_pulpie/.venv/bin/python -m pulpie_service.mcp_server
+  --env PYTHONPATH=/home/vega/Documents/git/local/agent-tools/pulpie/src \
+  -- /home/vega/Documents/git/local/agent-tools/pulpie/.venv/bin/python -m pulpie_service.mcp_server
 ```
 
 #### B. Manual Config (`~/.codex/config.toml` or Project `.codex/config.toml`)
 Alternatively, add the server definition directly to your TOML config:
 ```toml
 [mcp_servers.pulpie]
-command = "/home/vega/Documents/git/local/antigravity_with_pulpie/.venv/bin/python"
+command = "/home/vega/Documents/git/local/agent-tools/pulpie/.venv/bin/python"
 args = ["-m", "pulpie_service.mcp_server"]
 
 [mcp_servers.pulpie.env]
-PYTHONPATH = "/home/vega/Documents/git/local/antigravity_with_pulpie/src"
+PYTHONPATH = "/home/vega/Documents/git/local/agent-tools/pulpie/src"
 ```
 
 #### C. Global Skill Symlink
 Link the Pulpie extractor skill so Codex can discover and reference it:
 ```bash
-ln -sfn /home/vega/Documents/git/local/antigravity_with_pulpie/.agents/skills/pulpie-extractor ~/.codex/skills/pulpie-extractor
+ln -sfn /home/vega/Documents/git/local/agent-tools/pulpie/.agents/skills/pulpie-extractor ~/.codex/skills/pulpie-extractor
 ```
 
 #### D. Global Agent Guidance (`~/.codex/AGENTS.md`)
@@ -117,10 +117,10 @@ When fetching raw HTML or reading web pages that contain navigation headers, sid
 {
   "mcpServers": {
     "pulpie": {
-      "command": "/home/vega/Documents/git/local/antigravity_with_pulpie/.venv/bin/python",
+      "command": "/home/vega/Documents/git/local/agent-tools/pulpie/.venv/bin/python",
       "args": ["-m", "pulpie_service.mcp_server"],
       "env": {
-        "PYTHONPATH": "/home/vega/Documents/git/local/antigravity_with_pulpie/src"
+        "PYTHONPATH": "/home/vega/Documents/git/local/agent-tools/pulpie/src"
       }
     }
   }
@@ -130,10 +130,10 @@ When fetching raw HTML or reading web pages that contain navigation headers, sid
 #### Global Skills & Rules Symlinks
 ```bash
 # Skill reference
-ln -sfn /home/vega/Documents/git/local/antigravity_with_pulpie/.agents/skills/pulpie-extractor ~/.gemini/config/skills/pulpie-extractor
+ln -sfn /home/vega/Documents/git/local/agent-tools/pulpie/.agents/skills/pulpie-extractor ~/.gemini/config/skills/pulpie-extractor
 
 # Preprocessing policy rule
-ln -sfn /home/vega/Documents/git/local/antigravity_with_pulpie/.agents/rules/pulpie_preprocessing.md ~/.gemini/config/rules/pulpie_preprocessing.md
+ln -sfn /home/vega/Documents/git/local/agent-tools/pulpie/.agents/rules/pulpie_preprocessing.md ~/.gemini/config/rules/pulpie_preprocessing.md
 ```
 
 ---

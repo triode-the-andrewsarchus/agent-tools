@@ -70,11 +70,11 @@ The MCP server is registered in your global settings:
 {
   "mcpServers": {
     "local_worker": {
-      "command": "/home/vega/Documents/git/local/antigravity_with_local_llm/.venv/bin/python",
+      "command": "/home/vega/Documents/git/local/agent-tools/local_llm/.venv/bin/python",
       "args": ["-m", "local_worker.mcp_server"],
       "env": {
-        "PYTHONPATH": "/home/vega/Documents/git/local/antigravity_with_local_llm/src",
-        "LOCAL_WORKER_PROFILES": "/home/vega/Documents/git/local/antigravity_with_local_llm/worker_profiles.toml",
+        "PYTHONPATH": "/home/vega/Documents/git/local/agent-tools/local_llm/src",
+        "LOCAL_WORKER_PROFILES": "/home/vega/Documents/git/local/agent-tools/local_llm/worker_profiles.toml",
         "LOCAL_WORKER_DB": "/home/vega/.local/share/local-worker/jobs.db",
         "LMS_BASE_URL": "http://localhost:1234",
         "LMS_CLI": "/home/vega/.lmstudio/bin/lms"
@@ -88,10 +88,10 @@ The MCP server is registered in your global settings:
 Symlinked to the global Antigravity customization root (`~/.gemini/config/`) so any window/project discovers the tool cheatsheet and delegation policy:
 ```bash
 # Skills
-ln -sfn /home/vega/Documents/git/local/antigravity_with_local_llm/.agents/skills/local-workers ~/.gemini/config/skills/local-workers
+ln -sfn /home/vega/Documents/git/local/agent-tools/local_llm/.agents/skills/local-workers ~/.gemini/config/skills/local-workers
 
 # Rules (delegation heuristics)
-ln -sfn /home/vega/Documents/git/local/antigravity_with_local_llm/.agents/rules/local_workers.md ~/.gemini/config/rules/local_workers.md
+ln -sfn /home/vega/Documents/git/local/agent-tools/local_llm/.agents/rules/local_workers.md ~/.gemini/config/rules/local_workers.md
 ```
 
 ---

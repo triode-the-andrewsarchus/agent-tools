@@ -1,8 +1,7 @@
-# Codex Project Configuration for Pulpie Preprocessing Service
-
+# Codex Project Configuration for pulpie
 [mcp_servers.pulpie]
-command = "/home/vega/Documents/git/local/antigravity_with_pulpie/.venv/bin/python"
+command = "/home/vega/Documents/git/local/agent-tools/pulpie/.venv/bin/python"
 args = ["-m", "pulpie_service.mcp_server"]
 
 [mcp_servers.pulpie.env]
-PYTHONPATH = "/home/vega/Documents/git/local/antigravity_with_pulpie/src"
+PYTHONPATH = "/home/vega/Documents/git/local/agent-tools/pulpie/src"

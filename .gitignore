@@ -1,0 +1,21 @@
+# Python / Environments
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local states / logs
+scheduler_state.json
+*.log
+.fitness/
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/

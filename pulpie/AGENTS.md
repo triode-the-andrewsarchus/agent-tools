@@ -7,7 +7,7 @@ This repository provides a fast, lightweight web-content preprocessing service a
 ## Environment & Architecture
 
 - **Python Version**: Python >= 3.12
-- **Virtual Environment**: `.venv` (located at `/home/vega/Documents/git/local/antigravity_with_pulpie/.venv`)
+- **Virtual Environment**: `.venv` (located at `/home/vega/Documents/git/local/agent-tools/pulpie/.venv`)
 - **Package Source**: `src/` (root module: `pulpie_service`)
 - **Engine**: EuroBERT encoder model (`feyninc/pulpie-orange-small`, ~210M parameters, ~413 MB VRAM on GPU / runs on CPU)
 - **MCP Server**: Stdio MCP server implemented in `pulpie_service.mcp_server`

@@ -1,0 +1,11 @@
+# Codex Project Configuration for local_worker
+[mcp_servers.local_worker]
+command = "/home/vega/Documents/git/local/agent-tools/local_llm/.venv/bin/python"
+args = ["-m", "local_worker.mcp_server"]
+
+[mcp_servers.local_worker.env]
+PYTHONPATH = "/home/vega/Documents/git/local/agent-tools/local_llm/src"
+LOCAL_WORKER_PROFILES = "/home/vega/Documents/git/local/agent-tools/local_llm/worker_profiles.toml"
+LOCAL_WORKER_DB = "/home/vega/.local/share/local-worker/jobs.db"
+LMS_BASE_URL = "http://localhost:1234"
+LMS_CLI = "/home/vega/.lmstudio/bin/lms"
