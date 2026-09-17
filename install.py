@@ -43,6 +43,7 @@ PATH_ENV = f"{Path.home()}/.local/bin:/usr/local/bin:/usr/bin:/bin"
 # Antigravity paths
 GEMINI_CONFIG_DIR = Path.home() / ".gemini" / "config"
 GEMINI_MCP_CONFIG = GEMINI_CONFIG_DIR / "mcp_config.json"
+GEMINI_SETTINGS_FILE = Path.home() / ".gemini" / "settings.json"
 GEMINI_SKILLS_DIR = GEMINI_CONFIG_DIR / "skills"
 GEMINI_RULES_DIR = GEMINI_CONFIG_DIR / "rules"
 GEMINI_MCP_ROOTS = [
@@ -462,6 +463,23 @@ def install_antigravity(tool: ToolDefinition) -> None:
         json.dump(config, f, indent=2)
     print(f"  * Updated {GEMINI_MCP_CONFIG} -> {tool.mcp_name}")
 
+    if GEMINI_SETTINGS_FILE.exists():
+        try:
+            with open(GEMINI_SETTINGS_FILE, "r", encoding="utf-8") as f:
+                settings_data = json.load(f)
+            s_servers = settings_data.setdefault("mcpServers", {})
+            if tool.mcp_name in s_servers:
+                s_servers[tool.mcp_name] = {
+                    "command": str(tool.python_path),
+                    "args": ["-m", tool.module_name],
+                    "env": tool.env_vars,
+                }
+                with open(GEMINI_SETTINGS_FILE, "w", encoding="utf-8") as f:
+                    json.dump(settings_data, f, indent=2)
+                print(f"  * Updated {GEMINI_SETTINGS_FILE} -> {tool.mcp_name}")
+        except Exception as e:
+            print(f"  ! Warning: could not update {GEMINI_SETTINGS_FILE}: {e}")
+
     # 2. Generate tool schemas in ~/.gemini/antigravity*/mcp/<mcp_name>/
     for root_dir in GEMINI_MCP_ROOTS:
         dest_dir = root_dir / tool.mcp_name
@@ -513,6 +531,19 @@ def uninstall_antigravity(tool: ToolDefinition) -> None:
                 print(f"  * Removed {tool.mcp_name} from {GEMINI_MCP_CONFIG}")
         except Exception as e:
             print(f"  ! Error updating {GEMINI_MCP_CONFIG}: {e}")
+
+    if GEMINI_SETTINGS_FILE.exists():
+        try:
+            with open(GEMINI_SETTINGS_FILE, "r", encoding="utf-8") as f:
+                settings_data = json.load(f)
+            s_servers = settings_data.get("mcpServers", {})
+            if tool.mcp_name in s_servers:
+                del s_servers[tool.mcp_name]
+                with open(GEMINI_SETTINGS_FILE, "w", encoding="utf-8") as f:
+                    json.dump(settings_data, f, indent=2)
+                print(f"  * Removed {tool.mcp_name} from {GEMINI_SETTINGS_FILE}")
+        except Exception as e:
+            pass
 
     # 2. Remove schemas
     for root_dir in GEMINI_MCP_ROOTS:
