@@ -1,6 +1,6 @@
-# Architecture Fitness (`antigravity_with_refactoring`)
+# Architecture Fitness for Antigravity & Codex (`antigravity_with_refactoring`)
 
-A local, repository-agnostic architecture-fitness and complexity feedback system designed for coding agents.
+A local, repository-agnostic architecture-fitness and complexity feedback system designed for coding agents (Google Antigravity, OpenAI Codex CLI, and the Codex IDE extension).
 
 ## Problem Statement
 
@@ -99,7 +99,7 @@ uv pip install --python .venv/bin/python -e ".[dev]"
 npm install -g --prefix ~/.local @sibyllinesoft/valknut jscpd
 uv tool install lizard
 
-# Register MCP server and Agent Skills in Antigravity / Gemini
+# Register MCP server and Agent Skills in both Antigravity and Codex
 .venv/bin/python scripts/register_mcp.py
 ```
 
@@ -109,6 +109,102 @@ Run the smoke test and test suite:
 .venv/bin/python scripts/smoke_test.py
 .venv/bin/pytest -v tests/
 ```
+
+---
+
+## Assistant Integrations
+
+Architecture Fitness works seamlessly with both **OpenAI Codex** (CLI and IDE extension) and **Google Antigravity**.
+
+### Automatic Unified Setup
+You can configure both Antigravity and Codex in a single command:
+```bash
+.venv/bin/python scripts/register_mcp.py
+```
+*(Pass `--codex-only` or `--antigravity-only` if you only want to register with one assistant).*
+
+---
+
+### 1. OpenAI Codex Integration (CLI & IDE Extension)
+
+#### A. Automatic Registration via Script
+Run:
+```bash
+.venv/bin/python scripts/register_mcp.py --codex-only
+```
+This automatically:
+- Registers the MCP server globally in Codex (`~/.codex/config.toml` via `codex mcp add`)
+- Writes project-level config (`.codex/config.toml`)
+- Links all 3 architecture skills (`architecture-check`, `architecture-refactor`, `architecture-review`) into `~/.codex/skills/`
+- Appends architecture fitness guidance to `~/.codex/AGENTS.md`
+
+#### B. Manual CLI Registration
+To register manually using the Codex CLI:
+```bash
+codex mcp add architecture_fitness \
+  --env PYTHONPATH=/home/vega/Documents/git/local/antigravity_with_refactoring/src \
+  --env PATH=/home/vega/.local/bin:/usr/local/bin:/usr/bin:/bin \
+  -- /home/vega/Documents/git/local/antigravity_with_refactoring/.venv/bin/python -m architecture_fitness.mcp_server
+```
+
+#### C. Manual Config (`~/.codex/config.toml` or Project `.codex/config.toml`)
+Alternatively, add the server definition directly to TOML configuration:
+```toml
+[mcp_servers.architecture_fitness]
+command = "/home/vega/Documents/git/local/antigravity_with_refactoring/.venv/bin/python"
+args = ["-m", "architecture_fitness.mcp_server"]
+
+[mcp_servers.architecture_fitness.env]
+PYTHONPATH = "/home/vega/Documents/git/local/antigravity_with_refactoring/src"
+PATH = "/home/vega/.local/bin:/usr/local/bin:/usr/bin:/bin"
+```
+
+#### D. Global Skills Symlinks
+Link the architecture skills into `~/.codex/skills/` so Codex can discover and invoke the skill workflows:
+```bash
+ln -sfn /home/vega/Documents/git/local/antigravity_with_refactoring/.agents/skills/architecture-check ~/.codex/skills/architecture-check
+ln -sfn /home/vega/Documents/git/local/antigravity_with_refactoring/.agents/skills/architecture-refactor ~/.codex/skills/architecture-refactor
+ln -sfn /home/vega/Documents/git/local/antigravity_with_refactoring/.agents/skills/architecture-review ~/.codex/skills/architecture-review
+```
+
+#### E. Global & Project Agent Guidance (`AGENTS.md`)
+- **Global**: Appended to `~/.codex/AGENTS.md` so any project worked on by Codex abides by benefit-of-the-doubt and regression-checking rules.
+- **Repository**: A dedicated [AGENTS.md](file:///home/vega/Documents/git/local/antigravity_with_refactoring/AGENTS.md) is included in the project root with test commands, MCP signatures, and discipline principles.
+
+#### F. Using with the Codex IDE Extension
+- The Codex VS Code extension automatically picks up MCP servers configured in `~/.codex/config.toml` and workspace `.codex/config.toml`.
+- When prompting Codex in the IDE extension sidebar or composer, all 5 architecture tools (`architecture_baseline`, `architecture_measure`, `architecture_compare`, `architecture_hotspots`, `architecture_reuse_candidates`) are available for tool calls.
+- Verify active server status anytime:
+  ```bash
+  codex mcp list
+  codex mcp get architecture_fitness
+  ```
+
+---
+
+### 2. Antigravity Integration
+
+#### MCP Server Registration (`~/.gemini/config/mcp_config.json`)
+```json
+{
+  "mcpServers": {
+    "architecture_fitness": {
+      "command": "/home/vega/Documents/git/local/antigravity_with_refactoring/.venv/bin/python",
+      "args": ["-m", "architecture_fitness.mcp_server"],
+      "env": {
+        "PYTHONPATH": "/home/vega/Documents/git/local/antigravity_with_refactoring/src",
+        "PATH": "/home/vega/.local/bin:/usr/local/bin:/usr/bin:/bin"
+      }
+    }
+  }
+}
+```
+
+#### Tool Schemas & Customizations
+- Tool schemas are placed in `~/.gemini/antigravity-ide/mcp/architecture_fitness/*.json`.
+- Skills are symlinked to `~/.gemini/config/skills/`.
+- Rules are symlinked to `~/.gemini/config/rules/`.
+
 
 ---
 
