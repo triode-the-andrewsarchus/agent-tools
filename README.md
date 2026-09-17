@@ -1,6 +1,6 @@
-# Pulpie Web Preprocessing Service for Antigravity
+# Pulpie Web Preprocessing Service for Antigravity & Codex
 
-A specialized local preprocessing service and Model Context Protocol (MCP) server that sits between web fetching (search, HTTP, browser) and downstream LLM reasoning workers.
+A specialized local preprocessing service and Model Context Protocol (MCP) server that sits between web fetching (search, HTTP, browser) and downstream LLM reasoning workers (Antigravity, Codex CLI, and the Codex IDE extension).
 
 Powered by **Pulpie Orange Small** (`feyninc/pulpie-orange-small`, 210M parameters), Pulpie strips web boilerplate (navigation headers, sidebars, advertisements, cookie banners, tracking scripts, and footers) while preserving essential document semantics: headings, paragraphs, lists, tables, code blocks, links, and mathematical formulas.
 
@@ -34,7 +34,7 @@ Powered by **Pulpie Orange Small** (`feyninc/pulpie-orange-small`, 210M paramete
      └─────────────────┬──────────────────┘
                        │
                        ▼ (Clean Semantic Markdown)
-      [Antigravity Agent / Local LLMs / RAG]
+     [Antigravity / Codex / Local LLMs / RAG]
 ```
 
 ---
@@ -61,9 +61,58 @@ This pre-caches `feyninc/pulpie-orange-small` (~423 MB safetensors) into standar
 
 ---
 
-## Global Antigravity Integration
+## Assistant Integrations
 
-### MCP Server Registration (`~/.gemini/config/mcp_config.json`)
+Pulpie works seamlessly across both **Google Antigravity** and **OpenAI Codex** (CLI and IDE extension).
+
+### 1. OpenAI Codex Integration (CLI & IDE Extension)
+
+#### A. Register MCP Server via Codex CLI
+Run the following one-line command to register Pulpie globally in Codex:
+```bash
+codex mcp add pulpie \
+  --env PYTHONPATH=/home/vega/Documents/git/local/antigravity_with_pulpie/src \
+  -- /home/vega/Documents/git/local/antigravity_with_pulpie/.venv/bin/python -m pulpie_service.mcp_server
+```
+
+#### B. Manual Config (`~/.codex/config.toml` or Project `.codex/config.toml`)
+Alternatively, add the server definition directly to your TOML config:
+```toml
+[mcp_servers.pulpie]
+command = "/home/vega/Documents/git/local/antigravity_with_pulpie/.venv/bin/python"
+args = ["-m", "pulpie_service.mcp_server"]
+
+[mcp_servers.pulpie.env]
+PYTHONPATH = "/home/vega/Documents/git/local/antigravity_with_pulpie/src"
+```
+
+#### C. Global Skill Symlink
+Link the Pulpie extractor skill so Codex can discover and reference it:
+```bash
+ln -sfn /home/vega/Documents/git/local/antigravity_with_pulpie/.agents/skills/pulpie-extractor ~/.codex/skills/pulpie-extractor
+```
+
+#### D. Global Agent Guidance (`~/.codex/AGENTS.md`)
+Add preprocessing instructions to your global Codex agent guidance file (`~/.codex/AGENTS.md`):
+```markdown
+## Web Content Preprocessing with Pulpie
+When fetching raw HTML or reading web pages that contain navigation headers, sidebars, advertisements, cookie banners, tracking scripts, or footers, preprocess the content using `clean_html` or `clean_web_page` before feeding it to context or downstream analysis.
+```
+
+#### E. Using with the Codex IDE Extension
+- The Codex VS Code extension automatically picks up MCP servers configured in `~/.codex/config.toml`.
+- When interacting with the agent in the IDE sidebar or composer, Pulpie's tools (`clean_html`, `clean_web_page`, `pulpie_status`, `pulpie_preload`) are available.
+- Check and verify your Codex MCP status anytime:
+  ```bash
+  codex mcp list
+  codex mcp get pulpie
+  ```
+
+---
+
+### 2. Antigravity Integration
+
+#### MCP Server Registration (`~/.gemini/config/mcp_config.json`)
 ```json
 {
   "mcpServers": {
@@ -78,7 +127,7 @@ This pre-caches `feyninc/pulpie-orange-small` (~423 MB safetensors) into standar
 }
 ```
 
-### Global Skills & Rules Symlinks
+#### Global Skills & Rules Symlinks
 ```bash
 # Skill reference
 ln -sfn /home/vega/Documents/git/local/antigravity_with_pulpie/.agents/skills/pulpie-extractor ~/.gemini/config/skills/pulpie-extractor
