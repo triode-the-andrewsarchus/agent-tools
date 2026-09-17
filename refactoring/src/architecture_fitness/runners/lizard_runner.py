@@ -1,0 +1,195 @@
+"""Runner for Lizard cyclomatic complexity analyzer."""
+
+from __future__ import annotations
+
+import os
+import shutil
+import time
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Set, Tuple
+import pathspec
+
+from ..config import FitnessConfig
+from ..models import FunctionMetric, ToolStatus
+
+try:
+    import lizard
+    LIZARD_LIB_AVAILABLE = True
+except ImportError:
+    lizard = None
+    LIZARD_LIB_AVAILABLE = False
+
+
+class LizardRunner:
+    def __init__(self, config: Optional[FitnessConfig] = None):
+        self.config = config or FitnessConfig()
+
+    def get_version(self) -> Optional[str]:
+        if LIZARD_LIB_AVAILABLE and hasattr(lizard, "version"):
+            return lizard.version
+        exe = shutil.which("lizard")
+        if exe:
+            import subprocess
+            try:
+                out = subprocess.check_output([exe, "--version"], text=True, stderr=subprocess.STDOUT)
+                return out.strip()
+            except Exception:
+                pass
+        return None
+
+    def is_available(self) -> bool:
+        return LIZARD_LIB_AVAILABLE or shutil.which("lizard") is not None
+
+    def _collect_files(self, repo_path: Path, target_paths: Optional[List[str]] = None) -> List[Path]:
+        """Collect source files respecting gitignore and exclude patterns."""
+        # Build pathspec from excludes
+        spec = pathspec.PathSpec.from_lines("gitignore", self.config.exclude_paths)
+        
+        # Read .gitignore if present
+        gitignore = repo_path / ".gitignore"
+        gi_spec = None
+        if gitignore.exists():
+            try:
+                with open(gitignore, "r", encoding="utf-8") as f:
+                    gi_spec = pathspec.PathSpec.from_lines("gitignore", f.readlines())
+            except Exception:
+                pass
+
+        search_roots = [Path(p) if Path(p).is_absolute() else repo_path / p for p in target_paths] if target_paths else [repo_path]
+
+        discovered: List[Path] = []
+        for root in search_roots:
+            if not root.exists():
+                continue
+            if root.is_file():
+                rel = root.relative_to(repo_path).as_posix()
+                if not spec.match_file(rel) and (not gi_spec or not gi_spec.match_file(rel)):
+                    discovered.append(root)
+                continue
+
+            for dirpath, dirnames, filenames in os.walk(root):
+                rel_dir = Path(dirpath).relative_to(repo_path).as_posix()
+                if rel_dir != "." and (spec.match_file(rel_dir) or spec.match_file(f"{rel_dir}/") or (gi_spec and (gi_spec.match_file(rel_dir) or gi_spec.match_file(f"{rel_dir}/")))):
+                    dirnames.clear()
+                    continue
+
+                for fn in filenames:
+                    fpath = Path(dirpath) / fn
+                    rel_file = fpath.relative_to(repo_path).as_posix()
+                    if spec.match_file(rel_file):
+                        continue
+                    if gi_spec and gi_spec.match_file(rel_file):
+                        continue
+                    discovered.append(fpath)
+
+        return discovered
+
+    def run(self, repo_path: Path | str, target_paths: Optional[List[str]] = None) -> Tuple[ToolStatus, List[FunctionMetric], Dict[str, Any]]:
+        t0 = time.perf_counter()
+        root = Path(repo_path).resolve()
+
+        if not self.is_available():
+            status = ToolStatus(
+                name="lizard",
+                available=False,
+                version=None,
+                duration_seconds=0.0,
+                error="Lizard analyzer is not installed. Install via uv/pip ('uv pip install lizard') or pipx.",
+            )
+            return status, [], {}
+
+        version = self.get_version()
+        files = self._collect_files(root, target_paths)
+        file_paths = [str(f) for f in files]
+
+        functions: List[FunctionMetric] = []
+        file_summaries: Dict[str, Any] = {}
+        total_nloc = 0
+        total_ccn = 0
+        max_ccn = 0
+        high_ccn_count = 0
+
+        try:
+            if LIZARD_LIB_AVAILABLE:
+                # Use python API directly
+                file_infos = lizard.analyze_files(file_paths)
+                for fi in file_infos:
+                    rel_file = Path(fi.filename).resolve()
+                    try:
+                        rel_path = rel_file.relative_to(root).as_posix()
+                    except ValueError:
+                        rel_path = str(rel_file)
+
+                    total_nloc += fi.nloc
+                    file_summaries[rel_path] = {
+                        "nloc": fi.nloc,
+                        "token_count": fi.token_count,
+                        "function_count": len(fi.function_list),
+                    }
+
+                    for func in fi.function_list:
+                        ccn = func.cyclomatic_complexity
+                        total_ccn += ccn
+                        if ccn > max_ccn:
+                            max_ccn = ccn
+                        if ccn > self.config.thresholds.max_function_ccn:
+                            high_ccn_count += 1
+
+                        metric = FunctionMetric(
+                            file_path=rel_path,
+                            name=func.name,
+                            long_name=func.long_name,
+                            start_line=func.start_line,
+                            end_line=func.end_line,
+                            cyclomatic_complexity=ccn,
+                            nloc=func.nloc,
+                            token_count=func.token_count,
+                            parameter_count=len(func.full_parameters) if hasattr(func, "full_parameters") else 0,
+                            max_nesting_depth=getattr(func, "max_nesting_depth", 0),
+                        )
+                        functions.append(metric)
+            else:
+                # Fallback to CLI
+                import subprocess
+                import xml.etree.ElementTree as ET
+                cmd = ["lizard", "--xml"] + file_paths
+                proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                root_xml = ET.fromstring(proc.stdout)
+                for item in root_xml.findall(".//item"):
+                    # Parse xml output
+                    pass
+
+            duration = round(time.perf_counter() - t0, 3)
+            status = ToolStatus(
+                name="lizard",
+                available=True,
+                version=version,
+                duration_seconds=duration,
+            )
+
+            func_count = len(functions)
+            avg_ccn = round(total_ccn / func_count, 2) if func_count > 0 else 0.0
+
+            raw_summary = {
+                "total_nloc": total_nloc,
+                "functions_count": func_count,
+                "files_count": len(file_summaries),
+                "total_ccn": total_ccn,
+                "avg_ccn": avg_ccn,
+                "max_ccn": max_ccn,
+                "high_ccn_count": high_ccn_count,
+                "file_summaries": file_summaries,
+            }
+
+            return status, functions, raw_summary
+
+        except Exception as e:
+            duration = round(time.perf_counter() - t0, 3)
+            status = ToolStatus(
+                name="lizard",
+                available=True,
+                version=version,
+                duration_seconds=duration,
+                error=f"Error executing Lizard: {e}",
+            )
+            return status, [], {}

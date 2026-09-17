@@ -1,0 +1,9 @@
+# Codex Project Configuration for Architecture Fitness
+
+[mcp_servers.architecture_fitness]
+command = "/home/vega/Documents/git/local/antigravity_with_refactoring/.venv/bin/python"
+args = ["-m", "architecture_fitness.mcp_server"]
+
+[mcp_servers.architecture_fitness.env]
+PYTHONPATH = "/home/vega/Documents/git/local/antigravity_with_refactoring/src"
+PATH = "/home/vega/.local/bin:/usr/local/bin:/usr/bin:/bin"
