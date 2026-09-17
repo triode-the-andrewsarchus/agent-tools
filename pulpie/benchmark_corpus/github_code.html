@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>octocat/spoon-knife: src/worker.rs at main - CodeForge</title>
+</head>
+<body>
+  <div class="repo-header">
+    <a href="/octocat">octocat</a> / <strong><a href="/octocat/spoon-knife">spoon-knife</a></strong>
+    <span class="badge">Public</span>
+    <div class="repo-actions">
+      <button>Star 1.2k</button>
+      <button>Fork 450</button>
+    </div>
+  </div>
+
+  <nav class="subnav-tabs">
+    <a href="/octocat/spoon-knife" class="selected">Code</a>
+    <a href="/octocat/spoon-knife/issues">Issues 12</a>
+    <a href="/octocat/spoon-knife/pulls">Pull Requests 3</a>
+    <a href="/octocat/spoon-knife/actions">Actions</a>
+  </nav>
+
+  <div class="breadcrumb">
+    spoon-knife / src / <strong>worker.rs</strong>
+  </div>
+
+  <main class="blob-wrapper">
+    <div class="file-header">
+      <span>42 lines &bull; 1.1 KB &bull; Rust</span>
+      <button>Raw</button>
+      <button>Copy</button>
+    </div>
+    
+    <div class="file-content">
+      <pre><code>use std::sync::Arc;
+use tokio::sync::mpsc::{Receiver, Sender};
+
+pub struct Worker {
+    id: usize,
+    receiver: Receiver&lt;Job&gt;,
+    results: Sender&lt;JobResult&gt;,
+}
+
+impl Worker {
+    pub fn new(id: usize, rx: Receiver&lt;Job&gt;, tx: Sender&lt;JobResult&gt;) -> Self {
+        Self {
+            id,
+            receiver: rx,
+            results: tx,
+        }
+    }
+
+    pub async fn run(mut self) {
+        println!("Worker {} initialized", self.id);
+        while let Some(job) = self.receiver.recv().await {
+            let res = self.execute(job).await;
+            if let Err(e) = self.results.send(res).await {
+                eprintln!("Failed to send worker result: {}", e);
+                break;
+            }
+        }
+    }
+
+    async fn execute(&self, job: Job) -> JobResult {
+        // Execute background workload with deterministic timing
+        let output = format!("Job {} processed by worker {}", job.id, self.id);
+        JobResult { id: job.id, status: 0, output }
+    }
+}
+</code></pre>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="links">
+      <a href="/status">Status</a>
+      <a href="/docs">Docs</a>
+      <a href="/contact">Contact</a>
+      <a href="/privacy">Privacy</a>
+    </div>
+  </footer>
+</body>
+</html>

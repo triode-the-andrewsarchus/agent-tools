@@ -1,0 +1,20 @@
+<html>
+<head><title>Adversarial Broken Document Test</title>
+<body>
+<div>
+  <span>Malformed header without close tags
+  <script>alert('malicious payload'); console.log("ignore me");</script>
+  <style>body { display: none; }</style>
+  <nav><ul><li><a href="#">Link 1<li><a href="#">Link 2</ul></nav>
+
+  <p>This is genuine content block inside broken tags.
+  <div>
+    <h2>Section Title with unclosed tag
+    <p>Important text that must be extracted despite malformed HTML syntax.
+    <table>
+      <tr><td>Row 1 Cell 1<td>Row 1 Cell 2
+      <tr><td>Row 2 Cell 1<td>Row 2 Cell 2
+    </table>
+    <code>fn broken_syntax() { let x = 42; }</code>
+  </div>
+<footer><p>Unclosed footer text
