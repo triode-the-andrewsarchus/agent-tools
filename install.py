@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unified installer for agent-tools (Local LLM, Pulpie, Architecture Fitness).
+"""Unified installer for agent-tools (Local LLM, Pulpie, Architecture Fitness, ID Tokenizer).
 
 Supports granular and all-in-one installation for:
   - Google Antigravity (~/.gemini/)
@@ -410,6 +410,147 @@ You have access to local multidimensional architecture and complexity analysis t
 3. **Anti-Gaming Discipline**: Never optimize metrics artificially. Seek genuine structural Pareto improvements.
 """,
         ),
+        "id_tokenizer": ToolDefinition(
+            key="id_tokenizer",
+            mcp_name="id_tokenizer",
+            subpath="id_tokenizer",
+            python_relpath=".venv/bin/python",
+            src_relpath="python",
+            module_name="id_tokenizer.mcp_server",
+            env_vars={
+                "PYTHONPATH": str(MONOREPO_ROOT / "id_tokenizer" / "python"),
+            },
+            skills_relpaths=[".agents/skills/id-token-nicer"],
+            rules_relpaths=[".agents/rules/id_token_protection.md"],
+            instructions=(
+                "id_tokenizer protects LLMs from hallucinating opaque identifiers (UUIDs, sequential database IDs), "
+                "reduces token consumption, and hides sequential patterns. "
+                "Use substitute_ids before prompting an LLM to replace UUIDs with safe placeholders (${UUID_N}), "
+                "and restore_ids after receiving responses to recover originals. "
+                "Use encode_id and decode_id for token-optimized or memorable word phrases, faux UUIDs, and factor validation."
+            ),
+            schemas={
+                "substitute_ids": {
+                    "name": "substitute_ids",
+                    "description": (
+                        "Scan text for RFC 4122 UUIDs and substitute them with short placeholders (e.g. ${UUID_123}) "
+                        "before passing text to an LLM. The LLM never sees real UUIDs, eliminating ID hallucination. "
+                        "Stores mappings in an in-memory or file-backed registry so originals can be restored later."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "title": "substitute_idsArguments",
+                        "properties": {
+                            "text": {"type": "string", "title": "Text"},
+                            "registry_id": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": "default", "title": "Registry Id"},
+                            "registry_file": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": None, "title": "Registry File"},
+                            "factor": {"type": "integer", "default": 97, "title": "Factor"},
+                            "mix": {"type": "boolean", "default": True, "title": "Mix"},
+                        },
+                        "required": ["text"],
+                    },
+                },
+                "restore_ids": {
+                    "name": "restore_ids",
+                    "description": (
+                        "Restore original UUIDs into an LLM response containing ${UUID_N} placeholders. "
+                        "Uses the registry populated during substitute_ids. Any unrecognized or hallucinated placeholders "
+                        "are preserved as-is and reported in unknown_placeholders."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "title": "restore_idsArguments",
+                        "properties": {
+                            "text": {"type": "string", "title": "Text"},
+                            "registry_id": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": "default", "title": "Registry Id"},
+                            "registry_file": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": None, "title": "Registry File"},
+                        },
+                        "required": ["text"],
+                    },
+                },
+                "encode_id": {
+                    "name": "encode_id",
+                    "description": (
+                        "Encode a UUID or integer into a word phrase, numeric string, faux-UUID, or factor-protected ID. "
+                        "Styles: 'token' (LLM token-optimized words, 1 token/word), 'memorable' (real English words), "
+                        "'numeric' (128-bit integer, ~40% fewer tokens for UUIDs), 'shuffled' (salted permutation), "
+                        "'faux-uuid' (maps integer to UUID format via salted Feistel), or 'factor' (divisibility check)."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "title": "encode_idArguments",
+                        "properties": {
+                            "value": {"type": "string", "title": "Value"},
+                            "id_type": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": None, "title": "Id Type"},
+                            "style": {"type": "string", "default": "token", "title": "Style"},
+                            "vocab_size": {"type": "integer", "default": 2048, "title": "Vocab Size"},
+                            "separator": {"type": "string", "default": "-", "title": "Separator"},
+                            "salt": {"type": "string", "default": "", "title": "Salt"},
+                            "factor": {"type": "integer", "default": 97, "title": "Factor"},
+                            "min_digits": {"type": "integer", "default": 3, "title": "Min Digits"},
+                        },
+                        "required": ["value"],
+                    },
+                },
+                "decode_id": {
+                    "name": "decode_id",
+                    "description": (
+                        "Decode an encoded identifier back to the original UUID or integer. "
+                        "Validates checksums, bloom filters, and factor divisibility to catch hallucinated, "
+                        "tampered, or invalid IDs."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "title": "decode_idArguments",
+                        "properties": {
+                            "encoded": {"type": "string", "title": "Encoded"},
+                            "id_type": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": None, "title": "Id Type"},
+                            "style": {"type": "string", "default": "token", "title": "Style"},
+                            "vocab_size": {"type": "integer", "default": 2048, "title": "Vocab Size"},
+                            "salt": {"type": "string", "default": "", "title": "Salt"},
+                            "factor": {"type": "integer", "default": 97, "title": "Factor"},
+                            "min_digits": {"type": "integer", "default": 3, "title": "Min Digits"},
+                        },
+                        "required": ["encoded"],
+                    },
+                },
+                "id_tokenizer_status": {
+                    "name": "id_tokenizer_status",
+                    "description": "Check ID Tokenizer service status, supported styles, vocabularies, and active registries.",
+                    "parameters": {"type": "object", "title": "id_tokenizer_statusArguments", "properties": {}},
+                },
+            },
+            codex_agents_guidance="""
+---
+
+## ID Tokenizer & Protection
+You have access to identifier sanitization, token reduction, and pattern protection tools via the `id_tokenizer` MCP server.
+
+### Available Tools
+- `substitute_ids(text, registry_id="default")`: Scans text and substitutes raw UUIDs with short placeholders (`${UUID_N}`) before sending to an LLM, making ID hallucination impossible.
+- `restore_ids(text, registry_id="default")`: Swaps original UUIDs back into LLM responses. Any invented placeholders are flagged in `unknown_placeholders`.
+- `encode_id(value, style="token", vocab_size=2048, ...)`: Encodes UUIDs or integers into single-token words (`style="token"`), real English words (`style="memorable"`), 128-bit integers (`style="numeric"`), salted permutations (`style="shuffled"`), faux UUIDs (`style="faux-uuid"`), or prime-factor values (`style="factor"`).
+- `decode_id(encoded, style="token", ...)`: Decodes representations back to original UUIDs or integers, verifying checksums and bloom filters.
+- `id_tokenizer_status()`: Checks server health and active registry counts.
+""",
+        ),
+        "skills": ToolDefinition(
+            key="skills",
+            mcp_name="",
+            subpath="skills",
+            python_relpath="",
+            src_relpath="",
+            module_name="",
+            skills_relpaths=[
+                "rust-development",
+                "rust-doc-formatting",
+                "debugging-code",
+                "lsp-code-analysis",
+            ],
+            instructions="",
+            schemas={},
+            codex_agents_guidance="",
+        ),
     }
 
 
@@ -422,6 +563,35 @@ ALIASES = {
     "architecture_fitness": "refactoring",
     "architecture-fitness": "refactoring",
     "architecture": "refactoring",
+    "id_tokenizer": "id_tokenizer",
+    "id-tokenizer": "id_tokenizer",
+    "id_token": "id_tokenizer",
+    "id-token": "id_tokenizer",
+    "id_token_nicer": "id_tokenizer",
+    "id-token-nicer": "id_tokenizer",
+    "token_nicer": "id_tokenizer",
+    "token-nicer": "id_tokenizer",
+    "skills": "skills",
+    "rust": "skills",
+    "rust-skills": "skills",
+    "rust_skills": "skills",
+    "generic": "skills",
+    "generic-skills": "skills",
+    "generic_skills": "skills",
+    "debug": "skills",
+    "debug-skill": "skills",
+    "debug_skill": "skills",
+    "debugging": "skills",
+    "debugging-code": "skills",
+    "debugging_code": "skills",
+    "dap": "skills",
+    "lsp": "skills",
+    "lsp-skill": "skills",
+    "lsp_skill": "skills",
+    "lsp-client": "skills",
+    "lsp_client": "skills",
+    "lsp_code_analysis": "skills",
+    "lsp-code-analysis": "skills",
 }
 
 
@@ -437,70 +607,207 @@ def resolve_tool_key(name: str) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
+# Submodule & Tool Dependencies
+# ---------------------------------------------------------------------------
+
+
+def ensure_git_submodules() -> None:
+    """Ensure all git submodules in the monorepo are initialized and updated."""
+    gitmodules = MONOREPO_ROOT / ".gitmodules"
+    if gitmodules.exists():
+        debug_skill_dir = MONOREPO_ROOT / "skills" / "debug-skill" / "skills" / "debugging-code"
+        lsp_skill_dir = MONOREPO_ROOT / "skills" / "lsp-skill" / "skills" / "lsp-code-analysis"
+        if not debug_skill_dir.exists() or not lsp_skill_dir.exists():
+            print("[Submodules] Initializing git submodules...")
+            try:
+                res = subprocess.run(
+                    ["git", "submodule", "update", "--init", "--recursive"],
+                    cwd=MONOREPO_ROOT,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if res.returncode == 0:
+                    print("  * Git submodules successfully initialized and updated.")
+                else:
+                    print(f"  ! Warning: git submodule update returned code {res.returncode}: {res.stderr.strip()}")
+            except Exception as e:
+                print(f"  ! Warning: Failed to run git submodule update: {e}")
+
+
+def ensure_dap_cli() -> bool:
+    """Ensure dap debugger CLI is installed in PATH or ~/.local/bin."""
+    dap_in_path = shutil.which("dap")
+    local_bin_dap = Path.home() / ".local" / "bin" / "dap"
+    if dap_in_path or local_bin_dap.exists():
+        return True
+
+    installer_script = MONOREPO_ROOT / "skills" / "debug-skill" / "skills" / "debugging-code" / "scripts" / "install-dap.sh"
+    if not installer_script.exists():
+        print(f"  ! Warning: DAP installer script not found at {installer_script}")
+        return False
+
+    print("  * 'dap' CLI not found. Running installer script to install into ~/.local/bin/dap...")
+    try:
+        res = subprocess.run(
+            ["bash", str(installer_script)],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=dict(os.environ, PATH=PATH_ENV),
+        )
+        if res.returncode == 0:
+            print("  * Successfully installed 'dap' CLI.")
+            if res.stdout.strip():
+                for line in res.stdout.strip().splitlines():
+                    print(f"    {line}")
+            return True
+        else:
+            print(f"  ! Warning: DAP installer exited with code {res.returncode}:")
+            if res.stderr.strip():
+                for line in res.stderr.strip().splitlines():
+                    print(f"    {line}")
+            return False
+    except Exception as e:
+        print(f"  ! Warning: Failed to execute DAP installer: {e}")
+        return False
+
+
+def ensure_lsp_cli() -> bool:
+    """Ensure lsp CLI is installed in PATH or ~/.local/bin and functional."""
+    lsp_bin = shutil.which("lsp") or (Path.home() / ".local" / "bin" / "lsp" if (Path.home() / ".local" / "bin" / "lsp").exists() else None)
+    if lsp_bin:
+        try:
+            res = subprocess.run(
+                [str(lsp_bin), "--help"],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=dict(os.environ, PATH=PATH_ENV),
+            )
+            if res.returncode == 0:
+                return True
+        except Exception:
+            pass
+
+    uv_bin = shutil.which("uv") or (Path.home() / ".local" / "bin" / "uv" if (Path.home() / ".local" / "bin" / "uv").exists() else None)
+    if not uv_bin:
+        print("  ! Warning: 'uv' not found in PATH or ~/.local/bin. Cannot automatically install 'lsp-cli'.")
+        return False
+
+    print("  * Installing 'lsp-cli' via uv tool with LSAP v0.1.5...")
+    try:
+        res = subprocess.run(
+            [
+                str(uv_bin),
+                "tool",
+                "install",
+                "--force",
+                "--with",
+                "git+https://github.com/lsp-client/LSAP@v0.1.5",
+                "lsp-cli==0.4.0",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=dict(os.environ, PATH=PATH_ENV),
+        )
+        if res.returncode == 0:
+            print("  * Successfully installed 'lsp' CLI.")
+            return True
+        else:
+            print(f"  ! Warning: uv tool install lsp-cli exited with code {res.returncode}:")
+            if res.stderr.strip():
+                for line in res.stderr.strip().splitlines():
+                    print(f"    {line}")
+            return False
+    except Exception as e:
+        print(f"  ! Warning: Failed to install lsp-cli: {e}")
+        return False
+
+
+# ---------------------------------------------------------------------------
 # Antigravity Operations
 # ---------------------------------------------------------------------------
 
 
 def install_antigravity(tool: ToolDefinition) -> None:
-    print(f"[Antigravity] Installing '{tool.key}' ({tool.mcp_name})...")
+    label = f"'{tool.key}' ({tool.mcp_name})" if tool.mcp_name else f"'{tool.key}'"
+    print(f"[Antigravity] Installing {label}...")
 
-    # 1. Update ~/.gemini/config/mcp_config.json
-    config = {}
-    if GEMINI_MCP_CONFIG.exists():
-        try:
-            with open(GEMINI_MCP_CONFIG, "r", encoding="utf-8") as f:
-                config = json.load(f)
-        except Exception:
-            config = {}
-    servers = config.setdefault("mcpServers", {})
-    servers[tool.mcp_name] = {
-        "command": str(tool.python_path),
-        "args": ["-m", tool.module_name],
-        "env": tool.env_vars,
-    }
-    GEMINI_MCP_CONFIG.parent.mkdir(parents=True, exist_ok=True)
-    with open(GEMINI_MCP_CONFIG, "w", encoding="utf-8") as f:
-        json.dump(config, f, indent=2)
-    print(f"  * Updated {GEMINI_MCP_CONFIG} -> {tool.mcp_name}")
+    if tool.mcp_name:
+        # 1. Update ~/.gemini/config/mcp_config.json
+        config = {}
+        if GEMINI_MCP_CONFIG.exists():
+            try:
+                with open(GEMINI_MCP_CONFIG, "r", encoding="utf-8") as f:
+                    config = json.load(f)
+            except Exception:
+                config = {}
+        servers = config.setdefault("mcpServers", {})
+        servers[tool.mcp_name] = {
+            "command": str(tool.python_path),
+            "args": ["-m", tool.module_name],
+            "env": tool.env_vars,
+        }
+        GEMINI_MCP_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+        with open(GEMINI_MCP_CONFIG, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2)
+        print(f"  * Updated {GEMINI_MCP_CONFIG} -> {tool.mcp_name}")
 
-    if GEMINI_SETTINGS_FILE.exists():
-        try:
-            with open(GEMINI_SETTINGS_FILE, "r", encoding="utf-8") as f:
-                settings_data = json.load(f)
-            s_servers = settings_data.setdefault("mcpServers", {})
-            if tool.mcp_name in s_servers:
-                s_servers[tool.mcp_name] = {
-                    "command": str(tool.python_path),
-                    "args": ["-m", tool.module_name],
-                    "env": tool.env_vars,
-                }
-                with open(GEMINI_SETTINGS_FILE, "w", encoding="utf-8") as f:
-                    json.dump(settings_data, f, indent=2)
-                print(f"  * Updated {GEMINI_SETTINGS_FILE} -> {tool.mcp_name}")
-        except Exception as e:
-            print(f"  ! Warning: could not update {GEMINI_SETTINGS_FILE}: {e}")
+        if GEMINI_SETTINGS_FILE.exists():
+            try:
+                with open(GEMINI_SETTINGS_FILE, "r", encoding="utf-8") as f:
+                    settings_data = json.load(f)
+                s_servers = settings_data.setdefault("mcpServers", {})
+                if tool.mcp_name in s_servers:
+                    s_servers[tool.mcp_name] = {
+                        "command": str(tool.python_path),
+                        "args": ["-m", tool.module_name],
+                        "env": tool.env_vars,
+                    }
+                    with open(GEMINI_SETTINGS_FILE, "w", encoding="utf-8") as f:
+                        json.dump(settings_data, f, indent=2)
+                    print(f"  * Updated {GEMINI_SETTINGS_FILE} -> {tool.mcp_name}")
+            except Exception as e:
+                print(f"  ! Warning: could not update {GEMINI_SETTINGS_FILE}: {e}")
 
-    # 2. Generate tool schemas in ~/.gemini/antigravity*/mcp/<mcp_name>/
-    for root_dir in GEMINI_MCP_ROOTS:
-        dest_dir = root_dir / tool.mcp_name
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        if tool.instructions:
-            with open(dest_dir / "instructions.md", "w", encoding="utf-8") as f:
-                f.write(tool.instructions)
-        for schema_name, schema_content in tool.schemas.items():
-            with open(dest_dir / f"{schema_name}.json", "w", encoding="utf-8") as f:
-                json.dump(schema_content, f, indent=2)
-    print(f"  * Generated schemas across {len(GEMINI_MCP_ROOTS)} Antigravity MCP root locations")
+        # 2. Generate tool schemas in ~/.gemini/antigravity*/mcp/<mcp_name>/
+        for root_dir in GEMINI_MCP_ROOTS:
+            dest_dir = root_dir / tool.mcp_name
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            if tool.instructions:
+                with open(dest_dir / "instructions.md", "w", encoding="utf-8") as f:
+                    f.write(tool.instructions)
+            for schema_name, schema_content in tool.schemas.items():
+                with open(dest_dir / f"{schema_name}.json", "w", encoding="utf-8") as f:
+                    json.dump(schema_content, f, indent=2)
+        print(f"  * Generated schemas across {len(GEMINI_MCP_ROOTS)} Antigravity MCP root locations")
 
     # 3. Symlink skills
     GEMINI_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+    if tool.key == "skills":
+        ensure_dap_cli()
+        ensure_lsp_cli()
     for skill_rel in tool.skills_relpaths:
         src = tool.dir_path / skill_rel
+        if not src.exists() and skill_rel == "debugging-code":
+            fallback = tool.dir_path / "debug-skill" / "skills" / "debugging-code"
+            if fallback.exists():
+                src = fallback
+        elif not src.exists() and skill_rel == "lsp-code-analysis":
+            fallback = tool.dir_path / "lsp-skill" / "skills" / "lsp-code-analysis"
+            if fallback.exists():
+                src = fallback
         if src.exists():
             target = GEMINI_SKILLS_DIR / src.name
-            if target.is_symlink() or target.exists():
+            if target.is_symlink():
                 target.unlink()
-            target.symlink_to(src)
+            elif target.is_dir():
+                shutil.rmtree(target)
+            elif target.exists():
+                target.unlink()
+            target.symlink_to(src.resolve() if src.is_symlink() else src)
             print(f"  * Linked skill: {target} -> {src}")
 
     # 4. Symlink rules
@@ -509,64 +816,82 @@ def install_antigravity(tool: ToolDefinition) -> None:
         src = tool.dir_path / rule_rel
         if src.exists():
             target = GEMINI_RULES_DIR / src.name
-            if target.is_symlink() or target.exists():
+            if target.is_symlink():
+                target.unlink()
+            elif target.is_dir():
+                shutil.rmtree(target)
+            elif target.exists():
                 target.unlink()
             target.symlink_to(src)
             print(f"  * Linked rule: {target} -> {src}")
 
 
 def uninstall_antigravity(tool: ToolDefinition) -> None:
-    print(f"[Antigravity] Uninstalling '{tool.key}' ({tool.mcp_name})...")
+    label = f"'{tool.key}' ({tool.mcp_name})" if tool.mcp_name else f"'{tool.key}'"
+    print(f"[Antigravity] Uninstalling {label}...")
 
-    # 1. Remove from mcp_config.json
-    if GEMINI_MCP_CONFIG.exists():
-        try:
-            with open(GEMINI_MCP_CONFIG, "r", encoding="utf-8") as f:
-                config = json.load(f)
-            servers = config.get("mcpServers", {})
-            if tool.mcp_name in servers:
-                del servers[tool.mcp_name]
-                with open(GEMINI_MCP_CONFIG, "w", encoding="utf-8") as f:
-                    json.dump(config, f, indent=2)
-                print(f"  * Removed {tool.mcp_name} from {GEMINI_MCP_CONFIG}")
-        except Exception as e:
-            print(f"  ! Error updating {GEMINI_MCP_CONFIG}: {e}")
+    if tool.mcp_name:
+        # 1. Remove from mcp_config.json
+        if GEMINI_MCP_CONFIG.exists():
+            try:
+                with open(GEMINI_MCP_CONFIG, "r", encoding="utf-8") as f:
+                    config = json.load(f)
+                servers = config.get("mcpServers", {})
+                if tool.mcp_name in servers:
+                    del servers[tool.mcp_name]
+                    with open(GEMINI_MCP_CONFIG, "w", encoding="utf-8") as f:
+                        json.dump(config, f, indent=2)
+                    print(f"  * Removed {tool.mcp_name} from {GEMINI_MCP_CONFIG}")
+            except Exception as e:
+                print(f"  ! Error updating {GEMINI_MCP_CONFIG}: {e}")
 
-    if GEMINI_SETTINGS_FILE.exists():
-        try:
-            with open(GEMINI_SETTINGS_FILE, "r", encoding="utf-8") as f:
-                settings_data = json.load(f)
-            s_servers = settings_data.get("mcpServers", {})
-            if tool.mcp_name in s_servers:
-                del s_servers[tool.mcp_name]
-                with open(GEMINI_SETTINGS_FILE, "w", encoding="utf-8") as f:
-                    json.dump(settings_data, f, indent=2)
-                print(f"  * Removed {tool.mcp_name} from {GEMINI_SETTINGS_FILE}")
-        except Exception as e:
-            pass
+        if GEMINI_SETTINGS_FILE.exists():
+            try:
+                with open(GEMINI_SETTINGS_FILE, "r", encoding="utf-8") as f:
+                    settings_data = json.load(f)
+                s_servers = settings_data.get("mcpServers", {})
+                if tool.mcp_name in s_servers:
+                    del s_servers[tool.mcp_name]
+                    with open(GEMINI_SETTINGS_FILE, "w", encoding="utf-8") as f:
+                        json.dump(settings_data, f, indent=2)
+                    print(f"  * Removed {tool.mcp_name} from {GEMINI_SETTINGS_FILE}")
+            except Exception as e:
+                pass
 
-    # 2. Remove schemas
-    for root_dir in GEMINI_MCP_ROOTS:
-        dest_dir = root_dir / tool.mcp_name
-        if dest_dir.exists():
-            shutil.rmtree(dest_dir, ignore_errors=True)
-            print(f"  * Removed schema dir {dest_dir}")
+        # 2. Remove schemas
+        for root_dir in GEMINI_MCP_ROOTS:
+            dest_dir = root_dir / tool.mcp_name
+            if dest_dir.exists():
+                shutil.rmtree(dest_dir, ignore_errors=True)
+                print(f"  * Removed schema dir {dest_dir}")
 
     # 3. Remove skill symlinks
     for skill_rel in tool.skills_relpaths:
         skill_name = Path(skill_rel).name
         target = GEMINI_SKILLS_DIR / skill_name
-        if target.is_symlink() or target.exists():
+        if target.is_symlink():
             target.unlink()
             print(f"  * Removed skill link {target}")
+        elif target.is_dir():
+            shutil.rmtree(target)
+            print(f"  * Removed skill dir {target}")
+        elif target.exists():
+            target.unlink()
+            print(f"  * Removed skill {target}")
 
     # 4. Remove rule symlinks
     for rule_rel in tool.rules_relpaths:
         rule_name = Path(rule_rel).name
         target = GEMINI_RULES_DIR / rule_name
-        if target.is_symlink() or target.exists():
+        if target.is_symlink():
             target.unlink()
             print(f"  * Removed rule link {target}")
+        elif target.is_dir():
+            shutil.rmtree(target)
+            print(f"  * Removed rule dir {target}")
+        elif target.exists():
+            target.unlink()
+            print(f"  * Removed rule {target}")
 
 
 # ---------------------------------------------------------------------------
@@ -575,58 +900,75 @@ def uninstall_antigravity(tool: ToolDefinition) -> None:
 
 
 def install_codex(tool: ToolDefinition) -> None:
-    print(f"[Codex] Installing '{tool.key}' ({tool.mcp_name})...")
+    label = f"'{tool.key}' ({tool.mcp_name})" if tool.mcp_name else f"'{tool.key}'"
+    print(f"[Codex] Installing {label}...")
 
-    # 1. Project-level config inside component directory
-    proj_codex_dir = tool.dir_path / ".codex"
-    proj_codex_dir.mkdir(parents=True, exist_ok=True)
-    proj_lines = [
-        f"# Codex Project Configuration for {tool.mcp_name}",
-        f"[mcp_servers.{tool.mcp_name}]",
-        f'command = "{tool.python_path}"',
-        f'args = ["-m", "{tool.module_name}"]',
-        f"",
-        f"[mcp_servers.{tool.mcp_name}.env]",
-    ]
-    for k, v in tool.env_vars.items():
-        proj_lines.append(f'{k} = "{v}"')
-    proj_lines.append("")
-    with open(proj_codex_dir / "config.toml", "w", encoding="utf-8") as f:
-        f.write("\n".join(proj_lines))
-
-    # 2. Global Codex registration via CLI if available, else ~/.codex/config.toml
-    codex_bin = shutil.which("codex")
-    registered_via_cli = False
-    if codex_bin:
-        # Remove old if exists
-        subprocess.run([codex_bin, "mcp", "remove", tool.mcp_name], capture_output=True, check=False)
-        cmd = [codex_bin, "mcp", "add", tool.mcp_name]
+    if tool.mcp_name:
+        # 1. Project-level config inside component directory
+        proj_codex_dir = tool.dir_path / ".codex"
+        proj_codex_dir.mkdir(parents=True, exist_ok=True)
+        proj_lines = [
+            f"# Codex Project Configuration for {tool.mcp_name}",
+            f"[mcp_servers.{tool.mcp_name}]",
+            f'command = "{tool.python_path}"',
+            f'args = ["-m", "{tool.module_name}"]',
+            f"",
+            f"[mcp_servers.{tool.mcp_name}.env]",
+        ]
         for k, v in tool.env_vars.items():
-            cmd.extend(["--env", f"{k}={v}"])
-        cmd.extend(["--", str(tool.python_path), "-m", tool.module_name])
-        try:
-            res = subprocess.run(cmd, capture_output=True, text=True, check=False)
-            if res.returncode == 0:
-                print(f"  * Registered via codex CLI: {tool.mcp_name}")
-                registered_via_cli = True
-            else:
-                print(f"  ! codex mcp add returned code {res.returncode}: {res.stderr.strip()}")
-        except Exception as e:
-            print(f"  ! Failed running codex CLI: {e}")
+            proj_lines.append(f'{k} = "{v}"')
+        proj_lines.append("")
+        with open(proj_codex_dir / "config.toml", "w", encoding="utf-8") as f:
+            f.write("\n".join(proj_lines))
 
-    if not registered_via_cli:
-        # Fallback to direct ~/.codex/config.toml modification
-        _write_codex_toml(tool)
+        # 2. Global Codex registration via CLI if available, else ~/.codex/config.toml
+        codex_bin = shutil.which("codex")
+        registered_via_cli = False
+        if codex_bin:
+            # Remove old if exists
+            subprocess.run([codex_bin, "mcp", "remove", tool.mcp_name], capture_output=True, check=False)
+            cmd = [codex_bin, "mcp", "add", tool.mcp_name]
+            for k, v in tool.env_vars.items():
+                cmd.extend(["--env", f"{k}={v}"])
+            cmd.extend(["--", str(tool.python_path), "-m", tool.module_name])
+            try:
+                res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+                if res.returncode == 0:
+                    print(f"  * Registered via codex CLI: {tool.mcp_name}")
+                    registered_via_cli = True
+                else:
+                    print(f"  ! codex mcp add returned code {res.returncode}: {res.stderr.strip()}")
+            except Exception as e:
+                print(f"  ! Failed running codex CLI: {e}")
+
+        if not registered_via_cli:
+            # Fallback to direct ~/.codex/config.toml modification
+            _write_codex_toml(tool)
 
     # 3. Symlink skills to ~/.codex/skills/
     CODEX_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+    if tool.key == "skills":
+        ensure_dap_cli()
+        ensure_lsp_cli()
     for skill_rel in tool.skills_relpaths:
         src = tool.dir_path / skill_rel
+        if not src.exists() and skill_rel == "debugging-code":
+            fallback = tool.dir_path / "debug-skill" / "skills" / "debugging-code"
+            if fallback.exists():
+                src = fallback
+        elif not src.exists() and skill_rel == "lsp-code-analysis":
+            fallback = tool.dir_path / "lsp-skill" / "skills" / "lsp-code-analysis"
+            if fallback.exists():
+                src = fallback
         if src.exists():
             target = CODEX_SKILLS_DIR / src.name
-            if target.is_symlink() or target.exists():
+            if target.is_symlink():
                 target.unlink()
-            target.symlink_to(src)
+            elif target.is_dir():
+                shutil.rmtree(target)
+            elif target.exists():
+                target.unlink()
+            target.symlink_to(src.resolve() if src.is_symlink() else src)
             print(f"  * Linked skill: {target} -> {src}")
 
     # 4. Global Codex AGENTS.md instructions
@@ -649,27 +991,41 @@ def install_codex(tool: ToolDefinition) -> None:
 
 
 def uninstall_codex(tool: ToolDefinition) -> None:
-    print(f"[Codex] Uninstalling '{tool.key}' ({tool.mcp_name})...")
+    label = f"'{tool.key}' ({tool.mcp_name})" if tool.mcp_name else f"'{tool.key}'"
+    print(f"[Codex] Uninstalling {label}...")
 
-    # 1. Remove via CLI if available
-    codex_bin = shutil.which("codex")
-    if codex_bin:
-        subprocess.run([codex_bin, "mcp", "remove", tool.mcp_name], capture_output=True, check=False)
-        print(f"  * Removed {tool.mcp_name} via codex CLI")
+    if tool.mcp_name:
+        # 1. Remove via CLI if available
+        codex_bin = shutil.which("codex")
+        if codex_bin:
+            subprocess.run([codex_bin, "mcp", "remove", tool.mcp_name], capture_output=True, check=False)
+            print(f"  * Removed {tool.mcp_name} via codex CLI")
 
-    # 2. Clean from ~/.codex/config.toml
-    _remove_codex_toml(tool)
+        # 2. Clean from ~/.codex/config.toml
+        _remove_codex_toml(tool)
+
+        proj_codex_dir = tool.dir_path / ".codex"
+        if proj_codex_dir.exists():
+            shutil.rmtree(proj_codex_dir, ignore_errors=True)
 
     # 3. Remove skill symlinks
     for skill_rel in tool.skills_relpaths:
         skill_name = Path(skill_rel).name
         target = CODEX_SKILLS_DIR / skill_name
-        if target.is_symlink() or target.exists():
+        if target.is_symlink():
             target.unlink()
             print(f"  * Removed skill link {target}")
+        elif target.is_dir():
+            shutil.rmtree(target)
+            print(f"  * Removed skill dir {target}")
+        elif target.exists():
+            target.unlink()
+            print(f"  * Removed skill {target}")
 
 
 def _write_codex_toml(tool: ToolDefinition) -> None:
+    if not tool.mcp_name:
+        return
     CODEX_HOME_DIR.mkdir(parents=True, exist_ok=True)
     section_tag = f"[mcp_servers.{tool.mcp_name}]"
     lines = [
@@ -701,7 +1057,7 @@ def _write_codex_toml(tool: ToolDefinition) -> None:
 
 
 def _remove_codex_toml(tool: ToolDefinition) -> None:
-    if not CODEX_CONFIG_FILE.exists():
+    if not tool.mcp_name or not CODEX_CONFIG_FILE.exists():
         return
     with open(CODEX_CONFIG_FILE, "r", encoding="utf-8") as f:
         lines = f.readlines()
@@ -755,37 +1111,55 @@ def print_status() -> None:
                 content = f.read()
             for key in catalog:
                 mcp = catalog[key].mcp_name
-                if f"[mcp_servers.{mcp}]" in content:
+                if mcp and f"[mcp_servers.{mcp}]" in content:
                     cdx_servers[mcp] = True
         except Exception:
             pass
 
     for key, tool in catalog.items():
-        print(f"--- [{key.upper()}] (MCP: {tool.mcp_name}) ---")
-        venv_ok = tool.python_path.exists()
-        print(f"  Subdirectory:    {tool.dir_path} ({'EXISTS' if tool.dir_path.exists() else 'MISSING'})")
-        print(f"  Python venv:     {tool.python_path} ({'READY' if venv_ok else 'MISSING'})")
+        if tool.mcp_name:
+            print(f"--- [{key.upper()}] (MCP: {tool.mcp_name}) ---")
+            venv_ok = tool.python_path.exists()
+            print(f"  Subdirectory:    {tool.dir_path} ({'EXISTS' if tool.dir_path.exists() else 'MISSING'})")
+            print(f"  Python venv:     {tool.python_path} ({'READY' if venv_ok else 'MISSING'})")
 
-        # Antigravity status
-        agy_reg = tool.mcp_name in agy_servers
-        agy_cmd = agy_servers.get(tool.mcp_name, {}).get("command") if agy_reg else None
-        agy_path_match = agy_cmd == str(tool.python_path) if agy_cmd else False
-        agy_skills_ok = all((GEMINI_SKILLS_DIR / Path(s).name).is_symlink() for s in tool.skills_relpaths)
-        agy_rules_ok = all((GEMINI_RULES_DIR / Path(r).name).is_symlink() for r in tool.rules_relpaths)
-        print(
-            f"  Antigravity:     Registered={'YES' if agy_reg else 'NO'} | "
-            f"Path={'CORRECT' if agy_path_match else ('OUTDATED' if agy_reg else 'N/A')} | "
-            f"Skills={'OK' if agy_skills_ok else 'MISSING'} | "
-            f"Rules={'OK' if agy_rules_ok else 'MISSING'}"
-        )
+            # Antigravity status
+            agy_reg = tool.mcp_name in agy_servers
+            agy_cmd = agy_servers.get(tool.mcp_name, {}).get("command") if agy_reg else None
+            agy_path_match = agy_cmd == str(tool.python_path) if agy_cmd else False
+            agy_skills_ok = all((GEMINI_SKILLS_DIR / Path(s).name).is_symlink() for s in tool.skills_relpaths)
+            agy_rules_ok = all((GEMINI_RULES_DIR / Path(r).name).is_symlink() for r in tool.rules_relpaths)
+            print(
+                f"  Antigravity:     Registered={'YES' if agy_reg else 'NO'} | "
+                f"Path={'CORRECT' if agy_path_match else ('OUTDATED' if agy_reg else 'N/A')} | "
+                f"Skills={'OK' if agy_skills_ok else 'MISSING'} | "
+                f"Rules={'OK' if agy_rules_ok else 'MISSING'}"
+            )
 
-        # Codex status
-        cdx_reg = tool.mcp_name in cdx_servers
-        cdx_skills_ok = all((CODEX_SKILLS_DIR / Path(s).name).is_symlink() for s in tool.skills_relpaths)
-        print(
-            f"  Codex:           Registered={'YES' if cdx_reg else 'NO'} | "
-            f"Skills={'OK' if cdx_skills_ok else 'MISSING'}"
-        )
+            # Codex status
+            cdx_reg = tool.mcp_name in cdx_servers
+            cdx_skills_ok = all((CODEX_SKILLS_DIR / Path(s).name).is_symlink() for s in tool.skills_relpaths)
+            print(
+                f"  Codex:           Registered={'YES' if cdx_reg else 'NO'} | "
+                f"Skills={'OK' if cdx_skills_ok else 'MISSING'}"
+            )
+        else:
+            print(f"--- [{key.upper()}] (Standalone Skills) ---")
+            print(f"  Subdirectory:    {tool.dir_path} ({'EXISTS' if tool.dir_path.exists() else 'MISSING'})")
+            agy_skills_ok = all((GEMINI_SKILLS_DIR / Path(s).name).is_symlink() for s in tool.skills_relpaths)
+            print(
+                f"  Antigravity:     Skills={'OK' if agy_skills_ok else 'MISSING'}"
+            )
+            cdx_skills_ok = all((CODEX_SKILLS_DIR / Path(s).name).is_symlink() for s in tool.skills_relpaths)
+            print(
+                f"  Codex:           Skills={'OK' if cdx_skills_ok else 'MISSING'}"
+            )
+            dap_bin = shutil.which("dap") or (str(Path.home() / ".local" / "bin" / "dap") if (Path.home() / ".local" / "bin" / "dap").exists() else None)
+            dap_status = f"READY ({dap_bin})" if dap_bin else "NOT INSTALLED (run './install.py --tool skills')"
+            print(f"  DAP CLI:         {dap_status}")
+            lsp_bin = shutil.which("lsp") or (str(Path.home() / ".local" / "bin" / "lsp") if (Path.home() / ".local" / "bin" / "lsp").exists() else None)
+            lsp_status = f"READY ({lsp_bin})" if lsp_bin else "NOT INSTALLED (run './install.py --tool skills')"
+            print(f"  LSP CLI:         {lsp_status}")
         print()
 
 
@@ -803,14 +1177,13 @@ def main() -> None:
         "tool_pos",
         nargs="?",
         default=None,
-        help="Optional positional tool name: local_llm, pulpie, refactoring (or 'all')",
+        help="Optional positional tool name: local_llm, pulpie, refactoring, id_tokenizer, skills (or 'all')",
     )
     parser.add_argument(
         "--tool",
         "-t",
-        choices=["local_llm", "pulpie", "refactoring", "all"],
         default=None,
-        help="Tool to install or manage",
+        help="Tool to install or manage: local_llm, pulpie, refactoring, id_tokenizer, skills (or aliases)",
     )
     parser.add_argument(
         "--agent",
@@ -862,6 +1235,9 @@ def main() -> None:
         return
 
     agents = ["antigravity", "codex"] if args.agent == "all" else [args.agent]
+
+    if not args.uninstall:
+        ensure_git_submodules()
 
     action_label = "Uninstalling" if args.uninstall else "Installing"
     tools_label = ", ".join(t.key for t in target_tools)

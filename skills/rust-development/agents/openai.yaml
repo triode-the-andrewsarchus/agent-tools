@@ -1,0 +1,3 @@
+interface:
+  display_name: "Rust Development"
+  short_description: "Implement and debug Rust crates and Cargo workspaces"

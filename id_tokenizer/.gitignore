@@ -1,0 +1,11 @@
+target/
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+*.so
+.pytest_cache/
+.coverage
+*.log

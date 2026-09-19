@@ -1,0 +1,3 @@
+interface:
+  display_name: "Rust Documentation Style"
+  short_description: "Write rustdoc using RFC 1574 conventions"

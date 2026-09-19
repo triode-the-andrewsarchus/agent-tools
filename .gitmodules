@@ -1,0 +1,6 @@
+[submodule "skills/debug-skill"]
+	path = skills/debug-skill
+	url = https://github.com/AlmogBaku/debug-skill
+[submodule "skills/lsp-skill"]
+	path = skills/lsp-skill
+	url = https://github.com/lsp-client/lsp-skill

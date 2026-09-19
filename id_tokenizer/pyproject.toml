@@ -1,0 +1,34 @@
+[project]
+name = "id-tokenizer"
+version = "0.1.0"
+description = "Encode UUIDs and integers as memorable or token-friendly word sequences and protect LLMs from ID hallucination"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = [
+    "mcp[cli]>=2.2.0",
+]
+
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project.scripts]
+id-tokenizer = "id_tokenizer._cli:main"
+id-tokenizer-mcp = "id_tokenizer.mcp_server:main"
+
+[tool.maturin]
+features = ["python"]
+module-name = "id_tokenizer"
+python-source = "python"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "maturin>=1.0",
+]

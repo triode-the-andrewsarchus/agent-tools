@@ -1,0 +1,7 @@
+# Codex Project Configuration for id_tokenizer
+[mcp_servers.id_tokenizer]
+command = "/home/vega/Documents/git/local/agent-tools/id_tokenizer/.venv/bin/python"
+args = ["-m", "id_tokenizer.mcp_server"]
+
+[mcp_servers.id_tokenizer.env]
+PYTHONPATH = "/home/vega/Documents/git/local/agent-tools/id_tokenizer/python"

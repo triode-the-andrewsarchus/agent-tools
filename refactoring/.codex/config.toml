@@ -1,5 +1,4 @@
-# Codex Project Configuration for Architecture Fitness
-
+# Codex Project Configuration for architecture_fitness
 [mcp_servers.architecture_fitness]
 command = "/home/vega/Documents/git/local/agent-tools/refactoring/.venv/bin/python"
 args = ["-m", "architecture_fitness.mcp_server"]

@@ -11,8 +11,10 @@ A unified monorepo containing local agent tools, Model Context Protocol (MCP) se
 | [`local_llm`](local_llm) | `local_worker` | Local LLM worker pool with asynchronous job scheduling and automatic GPU memory coordination. | Qwen3.5-9B (cheap/parallel), Qwen3.6-27B (smart/reasoning) via LM Studio |
 | [`pulpie`](pulpie) | `pulpie` | Local neural web content extraction service that strips boilerplate (nav, ads, footers) while strictly preserving document semantics. | Pulpie Orange Small (`feyninc/pulpie-orange-small`, 210M params) |
 | [`refactoring`](refactoring) | `architecture_fitness` | Multidimensional architecture fitness, cyclomatic complexity tracking, duplication detection, and reuse discovery. | Lizard (CCN), jscpd (clones), Valknut (structural graph) |
+| [`id_tokenizer`](id_tokenizer) | `id_tokenizer` | Identifier tokenization, UUID substitution, pattern hiding, and LLM hallucination prevention. | Rust 2024 core + PyO3, xxHash64, FNV-1a checksums |
+| [`skills`](skills) | *N/A (Standalone)* | Cross-agent developer skills (`rust-development`, `rust-doc-formatting`, `debugging-code`, `lsp-code-analysis`). | Markdown skills with YAML frontmatter + `dap` & `lsp` CLIs |
 
-*Note: For convenience and backwards-compatibility, `local_worker -> local_llm` and `architecture_fitness -> refactoring` symlinks exist within the monorepo.*
+*Note: For convenience and backwards-compatibility, `local_worker -> local_llm`, `architecture_fitness -> refactoring`, and `id_token_nicer -> id_tokenizer` symlinks exist within the monorepo.*
 
 ---
 
@@ -27,7 +29,7 @@ Inspect the current registration, symlinks, and virtual environment status acros
 ```
 
 ### 2. Install All Tools to All Agents
-Installs all 3 tools (MCP servers, schemas, skills, and rules) to both Antigravity and Codex:
+Installs all 4 tools (MCP servers, schemas, skills, and rules) to both Antigravity and Codex:
 ```bash
 ./install.py --all
 ```
@@ -50,6 +52,9 @@ Install only what you need without bloating other environments:
 # Install only Architecture Fitness to Antigravity
 ./install.py --tool refactoring --agent antigravity
 
+# Install only ID Tokenizer to Antigravity
+./install.py --tool id_tokenizer --agent antigravity
+
 # Install only Local Worker to all agents
 ./install.py --tool local_llm --agent all
 ```
@@ -65,6 +70,7 @@ Each component also contains a `scripts/register_mcp.py` script for local invoca
 cd pulpie && python scripts/register_mcp.py
 cd refactoring && python scripts/register_mcp.py
 cd local_llm && python scripts/register_mcp.py
+cd id_tokenizer && python scripts/register_mcp.py
 ```
 
 ---
@@ -82,6 +88,9 @@ pulpie/.venv/bin/pytest pulpie/tests/
 
 # Run refactoring tests
 refactoring/.venv/bin/pytest refactoring/tests/
+
+# Run id_tokenizer tests
+id_tokenizer/.venv/bin/pytest id_tokenizer/tests/
 ```
 
 ---
@@ -101,6 +110,18 @@ agent-tools/
 │   ├── src/pulpie_service/         # MCP server & extractor source
 │   ├── .agents/                    # Skills & rules
 │   └── tests/                      # Pytest suite
+├── id_tokenizer/                   # ID tokenizer & substitution service
+│   ├── src/                        # Rust core (codec, Feistel mixing, checksums)
+│   ├── python/id_tokenizer/        # Python module & MCP server
+│   ├── .agents/                    # Skills & rules
+│   └── tests/                      # Pytest suite
+├── skills/                         # Standalone cross-agent skills
+│   ├── rust-development/           # Rust development best practices
+│   ├── rust-doc-formatting/        # Rustdoc RFC 1574 styling
+│   ├── debugging-code/             # Interactive DAP debugger skill
+│   ├── debug-skill/                # Submodule (AlmogBaku/debug-skill)
+│   ├── lsp-code-analysis/          # Semantic LSP code analysis skill
+│   └── lsp-skill/                  # Submodule (lsp-client/lsp-skill)
 └── refactoring/                    # Architecture fitness system
     ├── src/architecture_fitness/   # MCP server & analyzers
     ├── .agents/                    # Skills & rules
