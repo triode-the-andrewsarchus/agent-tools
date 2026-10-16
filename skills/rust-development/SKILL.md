@@ -23,3 +23,5 @@ cargo clippy --workspace --all-targets
 Run `cargo fmt --all` to apply formatting when editing code. Add `--all-features` only if those features are intended to work together. Respect lockfiles and avoid unrelated dependency updates. Report checks run and any relevant checks that could not run.
 
 For version-sensitive or unfamiliar behavior, verify against the [Rust Reference](https://doc.rust-lang.org/reference/), [standard library](https://doc.rust-lang.org/std/), [Cargo Book](https://doc.rust-lang.org/cargo/), or [Clippy documentation](https://doc.rust-lang.org/clippy/).
+
+For error handling, use [thiserror](https://lib.rs/crates/thiserror) for libraries and [anyhow](https://lib.rs/crates/anyhow) for applications.
