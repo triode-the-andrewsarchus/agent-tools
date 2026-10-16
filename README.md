@@ -12,7 +12,7 @@ A unified monorepo containing local agent tools, Model Context Protocol (MCP) se
 | [`pulpie`](pulpie) | `pulpie` | Local neural web content extraction service that strips boilerplate (nav, ads, footers) while strictly preserving document semantics. | Pulpie Orange Small (`feyninc/pulpie-orange-small`, 210M params) |
 | [`refactoring`](refactoring) | `architecture_fitness` | Multidimensional architecture fitness, cyclomatic complexity tracking, duplication detection, and reuse discovery. | Lizard (CCN), jscpd (clones), Valknut (structural graph) |
 | [`id_tokenizer`](id_tokenizer) | `id_tokenizer` | Identifier tokenization, UUID substitution, pattern hiding, and LLM hallucination prevention. | Rust 2024 core + PyO3, xxHash64, FNV-1a checksums |
-| [`skills`](skills) | *N/A (Standalone)* | Cross-agent developer skills (`rust-development`, `rust-doc-formatting`, `debugging-code`, `lsp-code-analysis`). | Markdown skills with YAML frontmatter + `dap` & `lsp` CLIs |
+| [`skills`](skills) | *N/A (Standalone)* | Cross-agent developer skills (`rust-development`, `rust-doc-formatting`, `debugging-code`, `lsp-code-analysis`, `anatomy`, `reverse-engineer-anything`). | Markdown skills with YAML frontmatter + `dap` & `lsp` CLIs, Node.js & Chromium/Chrome, `rea-agents` MCP |
 
 *Note: For convenience and backwards-compatibility, `local_worker -> local_llm`, `architecture_fitness -> refactoring`, and `id_token_nicer -> id_tokenizer` symlinks exist within the monorepo.*
 

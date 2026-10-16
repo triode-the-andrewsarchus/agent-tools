@@ -9,7 +9,7 @@ This repository is a monorepo housing developer tools and cross-agent skills:
 2. `pulpie`: Web content extraction and cleaning (`pulpie` MCP).
 3. `refactoring`: Architecture fitness, cyclomatic complexity, and clone prevention (`architecture_fitness` MCP).
 4. `id_tokenizer`: Identifier tokenization, UUID substitution, and hallucination protection (`id_tokenizer` MCP).
-5. `skills`: Standalone cross-agent skills (`rust-development`, `rust-doc-formatting`, `debugging-code`, `lsp-code-analysis`).
+5. `skills`: Standalone cross-agent skills (`rust-development`, `rust-doc-formatting`, `debugging-code`, `lsp-code-analysis`, `anatomy`, `reverse-engineer-anything`).
 
 ## Quick Verification Commands
 

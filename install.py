@@ -546,6 +546,8 @@ You have access to identifier sanitization, token reduction, and pattern protect
                 "rust-doc-formatting",
                 "debugging-code",
                 "lsp-code-analysis",
+                "anatomy",
+                "reverse-engineer-anything",
             ],
             instructions="",
             schemas={},
@@ -592,6 +594,16 @@ ALIASES = {
     "lsp_client": "skills",
     "lsp_code_analysis": "skills",
     "lsp-code-analysis": "skills",
+    "anatomy": "skills",
+    "anatomy-skill": "skills",
+    "anatomy_skill": "skills",
+    "rea": "skills",
+    "rea-skill": "skills",
+    "rea_skill": "skills",
+    "rea-agents": "skills",
+    "rea_agents": "skills",
+    "reverse-engineer-anything": "skills",
+    "reverse_engineer_anything": "skills",
 }
 
 
@@ -617,7 +629,9 @@ def ensure_git_submodules() -> None:
     if gitmodules.exists():
         debug_skill_dir = MONOREPO_ROOT / "skills" / "debug-skill" / "skills" / "debugging-code"
         lsp_skill_dir = MONOREPO_ROOT / "skills" / "lsp-skill" / "skills" / "lsp-code-analysis"
-        if not debug_skill_dir.exists() or not lsp_skill_dir.exists():
+        anatomy_skill_dir = MONOREPO_ROOT / "skills" / "anatomy" / "SKILL.md"
+        rea_skill_dir = MONOREPO_ROOT / "skills" / "rea" / ".agents" / "skills" / "reverse-engineer-anything" / "SKILL.md"
+        if not debug_skill_dir.exists() or not lsp_skill_dir.exists() or not anatomy_skill_dir.exists() or not rea_skill_dir.exists():
             print("[Submodules] Initializing git submodules...")
             try:
                 res = subprocess.run(
@@ -726,6 +740,47 @@ def ensure_lsp_cli() -> bool:
         return False
 
 
+def _ensure_rea_mcp_antigravity() -> None:
+    """Ensure REA MCP server is registered in ~/.gemini/config/mcp_config.json."""
+    if not GEMINI_MCP_CONFIG.exists():
+        return
+    try:
+        with open(GEMINI_MCP_CONFIG, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        mcp_servers = data.setdefault("mcpServers", {})
+        if "rea" not in mcp_servers:
+            mcp_servers["rea"] = {
+                "command": "npx",
+                "args": ["-y", "rea-agents@6.5.0", "mcp"],
+            }
+            with open(GEMINI_MCP_CONFIG, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+            print("  * Registered REA MCP server in Antigravity config")
+    except Exception as e:
+        print(f"  ! Warning: Failed to verify REA MCP in Antigravity: {e}")
+
+
+def _ensure_rea_mcp_codex() -> None:
+    """Ensure REA MCP server is registered in ~/.codex/config.toml."""
+    if not CODEX_CONFIG_FILE.exists():
+        return
+    try:
+        with open(CODEX_CONFIG_FILE, "r", encoding="utf-8") as f:
+            content = f.read()
+        if "[mcp_servers.rea]" not in content:
+            rea_block = (
+                '\n[mcp_servers.rea]\n'
+                'command = "npx"\n'
+                'args = [ "-y", "rea-agents@6.5.0", "mcp" ]\n'
+                'startup_timeout_sec = 30\n'
+            )
+            with open(CODEX_CONFIG_FILE, "a", encoding="utf-8") as f:
+                f.write(rea_block)
+            print("  * Registered REA MCP server in Codex config")
+    except Exception as e:
+        print(f"  ! Warning: Failed to verify REA MCP in Codex: {e}")
+
+
 # ---------------------------------------------------------------------------
 # Antigravity Operations
 # ---------------------------------------------------------------------------
@@ -789,6 +844,7 @@ def install_antigravity(tool: ToolDefinition) -> None:
     if tool.key == "skills":
         ensure_dap_cli()
         ensure_lsp_cli()
+        _ensure_rea_mcp_antigravity()
     for skill_rel in tool.skills_relpaths:
         src = tool.dir_path / skill_rel
         if not src.exists() and skill_rel == "debugging-code":
@@ -797,6 +853,14 @@ def install_antigravity(tool: ToolDefinition) -> None:
                 src = fallback
         elif not src.exists() and skill_rel == "lsp-code-analysis":
             fallback = tool.dir_path / "lsp-skill" / "skills" / "lsp-code-analysis"
+            if fallback.exists():
+                src = fallback
+        elif not src.exists() and skill_rel == "anatomy":
+            fallback = tool.dir_path / "anatomy"
+            if fallback.exists():
+                src = fallback
+        elif not src.exists() and skill_rel == "reverse-engineer-anything":
+            fallback = tool.dir_path / "rea" / ".agents" / "skills" / "reverse-engineer-anything"
             if fallback.exists():
                 src = fallback
         if src.exists():
@@ -809,6 +873,15 @@ def install_antigravity(tool: ToolDefinition) -> None:
                 target.unlink()
             target.symlink_to(src.resolve() if src.is_symlink() else src)
             print(f"  * Linked skill: {target} -> {src}")
+
+    # Antigravity alternate skills path compatibility: ~/.gemini/antigravity/skills
+    agy_alt_skills = Path.home() / ".gemini" / "antigravity" / "skills"
+    if agy_alt_skills.parent.exists() and not agy_alt_skills.exists():
+        try:
+            agy_alt_skills.symlink_to(GEMINI_SKILLS_DIR)
+            print(f"  * Created Antigravity alternate skills link: {agy_alt_skills} -> {GEMINI_SKILLS_DIR}")
+        except Exception:
+            pass
 
     # 4. Symlink rules
     GEMINI_RULES_DIR.mkdir(parents=True, exist_ok=True)
@@ -950,6 +1023,7 @@ def install_codex(tool: ToolDefinition) -> None:
     if tool.key == "skills":
         ensure_dap_cli()
         ensure_lsp_cli()
+        _ensure_rea_mcp_codex()
     for skill_rel in tool.skills_relpaths:
         src = tool.dir_path / skill_rel
         if not src.exists() and skill_rel == "debugging-code":
@@ -958,6 +1032,14 @@ def install_codex(tool: ToolDefinition) -> None:
                 src = fallback
         elif not src.exists() and skill_rel == "lsp-code-analysis":
             fallback = tool.dir_path / "lsp-skill" / "skills" / "lsp-code-analysis"
+            if fallback.exists():
+                src = fallback
+        elif not src.exists() and skill_rel == "anatomy":
+            fallback = tool.dir_path / "anatomy"
+            if fallback.exists():
+                src = fallback
+        elif not src.exists() and skill_rel == "reverse-engineer-anything":
+            fallback = tool.dir_path / "rea" / ".agents" / "skills" / "reverse-engineer-anything"
             if fallback.exists():
                 src = fallback
         if src.exists():
@@ -970,6 +1052,17 @@ def install_codex(tool: ToolDefinition) -> None:
                 target.unlink()
             target.symlink_to(src.resolve() if src.is_symlink() else src)
             print(f"  * Linked skill: {target} -> {src}")
+
+    # Codex alternate skills path compatibility: ~/.agents/skills
+    agents_dir = Path.home() / ".agents"
+    agents_skills_compat = agents_dir / "skills"
+    if not agents_skills_compat.exists() and not agents_skills_compat.is_symlink():
+        try:
+            agents_dir.mkdir(parents=True, exist_ok=True)
+            agents_skills_compat.symlink_to(CODEX_SKILLS_DIR)
+            print(f"  * Created Agent Skills compatibility link: {agents_skills_compat} -> {CODEX_SKILLS_DIR}")
+        except Exception:
+            pass
 
     # 4. Global Codex AGENTS.md instructions
     if tool.codex_agents_guidance:
@@ -1160,6 +1253,27 @@ def print_status() -> None:
             lsp_bin = shutil.which("lsp") or (str(Path.home() / ".local" / "bin" / "lsp") if (Path.home() / ".local" / "bin" / "lsp").exists() else None)
             lsp_status = f"READY ({lsp_bin})" if lsp_bin else "NOT INSTALLED (run './install.py --tool skills')"
             print(f"  LSP CLI:         {lsp_status}")
+            node_bin = shutil.which("node")
+            node_status = f"READY ({node_bin})" if node_bin else "NOT INSTALLED (Node.js >= 20.10 required for Anatomy)"
+            print(f"  Node.js:         {node_status}")
+            chrome_bin = shutil.which("chromium") or shutil.which("google-chrome") or shutil.which("google-chrome-stable")
+            chrome_status = f"READY ({chrome_bin})" if chrome_bin else "NOT INSTALLED (Chromium/Chrome required for Anatomy visual checks)"
+            print(f"  Chromium/Chrome: {chrome_status}")
+            rea_agy = False
+            if GEMINI_MCP_CONFIG.exists():
+                try:
+                    with open(GEMINI_MCP_CONFIG, "r", encoding="utf-8") as f:
+                        rea_agy = "rea" in json.load(f).get("mcpServers", {})
+                except Exception:
+                    pass
+            rea_cdx = False
+            if CODEX_CONFIG_FILE.exists():
+                try:
+                    with open(CODEX_CONFIG_FILE, "r", encoding="utf-8") as f:
+                        rea_cdx = "[mcp_servers.rea]" in f.read()
+                except Exception:
+                    pass
+            print(f"  REA MCP:         Antigravity={'REGISTERED' if rea_agy else 'MISSING'} | Codex={'REGISTERED' if rea_cdx else 'MISSING'}")
         print()
 
 

@@ -4,3 +4,9 @@
 [submodule "skills/lsp-skill"]
 	path = skills/lsp-skill
 	url = https://github.com/lsp-client/lsp-skill
+[submodule "skills/anatomy"]
+	path = skills/anatomy
+	url = https://github.com/wheresryan22/anatomy
+[submodule "skills/rea"]
+	path = skills/rea
+	url = https://github.com/morluto/rea
