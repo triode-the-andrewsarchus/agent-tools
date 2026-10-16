@@ -20,6 +20,16 @@ except ImportError:
     LIZARD_LIB_AVAILABLE = False
 
 
+SUPPORTED_LIZARD_EXTENSIONS = {
+    "c", "cpp", "cc", "cxx", "h", "hpp", "java", "cs", "js", "cjs", "mjs",
+    "py", "pyw", "m", "mm", "ttcn", "ttcnpp", "rb", "php", "swift", "scala",
+    "gd", "go", "lua", "rs", "ts", "f70", "f90", "f95", "f03", "f08", "f",
+    "for", "ftn", "fpp", "kt", "kts", "sol", "erl", "hrl", "es", "escript",
+    "zig", "tsx", "jsx", "vue", "pl", "pm", "st", "r", "sql", "pks", "pkb",
+    "pls", "plb", "pck",
+}
+
+
 class LizardRunner:
     def __init__(self, config: Optional[FitnessConfig] = None):
         self.config = config or FitnessConfig()
@@ -39,6 +49,37 @@ class LizardRunner:
 
     def is_available(self) -> bool:
         return LIZARD_LIB_AVAILABLE or shutil.which("lizard") is not None
+
+    def _is_supported_source_file(self, fpath: Path) -> bool:
+        """Check if file is a supported source file for Lizard, respecting configured languages and max size."""
+        if not fpath.is_file():
+            return False
+        try:
+            # Skip files larger than 2MB to prevent runaway regex tokenization
+            if fpath.stat().st_size > 2 * 1024 * 1024:
+                return False
+        except OSError:
+            return False
+
+        if LIZARD_LIB_AVAILABLE:
+            reader = lizard.get_reader_for(fpath.name)
+            if reader is None:
+                return False
+            if self.config.languages:
+                req_langs = {l.lower() for l in self.config.languages}
+                reader_langs = {l.lower() for l in getattr(reader, "language_names", [])}
+                if not reader_langs.intersection(req_langs):
+                    return False
+            return True
+        else:
+            ext = fpath.suffix.lstrip(".").lower()
+            if not ext or ext not in SUPPORTED_LIZARD_EXTENSIONS:
+                return False
+            if self.config.languages:
+                req_langs = {l.lower() for l in self.config.languages}
+                if ext not in req_langs:
+                    return False
+            return True
 
     def _collect_files(self, repo_path: Path, target_paths: Optional[List[str]] = None) -> List[Path]:
         """Collect source files respecting gitignore and exclude patterns."""
@@ -64,14 +105,29 @@ class LizardRunner:
             if root.is_file():
                 rel = root.relative_to(repo_path).as_posix()
                 if not spec.match_file(rel) and (not gi_spec or not gi_spec.match_file(rel)):
-                    discovered.append(root)
+                    if self._is_supported_source_file(root):
+                        discovered.append(root)
                 continue
 
             for dirpath, dirnames, filenames in os.walk(root):
                 rel_dir = Path(dirpath).relative_to(repo_path).as_posix()
-                if rel_dir != "." and (spec.match_file(rel_dir) or spec.match_file(f"{rel_dir}/") or (gi_spec and (gi_spec.match_file(rel_dir) or gi_spec.match_file(f"{rel_dir}/")))):
+                if rel_dir != "." and (
+                    spec.match_file(rel_dir)
+                    or spec.match_file(f"{rel_dir}/")
+                    or (gi_spec and (gi_spec.match_file(rel_dir) or gi_spec.match_file(f"{rel_dir}/")))
+                ):
                     dirnames.clear()
                     continue
+
+                # Prune directory search space to avoid descending into ignored trees
+                dirnames[:] = [
+                    d for d in dirnames
+                    if not (
+                        spec.match_file(f"{rel_dir}/{d}" if rel_dir != "." else d)
+                        or spec.match_file(f"{rel_dir}/{d}/" if rel_dir != "." else f"{d}/")
+                        or (gi_spec and (gi_spec.match_file(f"{rel_dir}/{d}" if rel_dir != "." else d) or gi_spec.match_file(f"{rel_dir}/{d}/" if rel_dir != "." else f"{d}/")))
+                    )
+                ]
 
                 for fn in filenames:
                     fpath = Path(dirpath) / fn
@@ -79,6 +135,8 @@ class LizardRunner:
                     if spec.match_file(rel_file):
                         continue
                     if gi_spec and gi_spec.match_file(rel_file):
+                        continue
+                    if not self._is_supported_source_file(fpath):
                         continue
                     discovered.append(fpath)
 

@@ -43,6 +43,35 @@ def test_lizard_runner_excludes(temp_dir):
     assert functions[0].name == "keep"
 
 
+def test_lizard_runner_skips_binary_and_non_code_files(temp_dir):
+    (temp_dir / "font.ttf").write_bytes(b"\x00\x01\x00\x00\x00\x0f" * 500)
+    (temp_dir / "image.png").write_bytes(b"\x89PNG\r\n\x1a\n" * 50)
+    (temp_dir / "notes.md").write_text("# Documentation\nSome notes here.")
+    (temp_dir / "code.py").write_text("def valid_func():\n    return 42\n")
+
+    runner = LizardRunner()
+    status, functions, summary = runner.run(temp_dir)
+
+    assert status.available is True
+    assert len(functions) == 1
+    assert functions[0].name == "valid_func"
+    assert summary["files_count"] == 1
+
+
+def test_lizard_runner_language_filter(temp_dir):
+    (temp_dir / "script.py").write_text("def py_func():\n    pass\n")
+    (temp_dir / "lib.rs").write_text("pub fn rs_func() {}\n")
+
+    config = FitnessConfig(languages=["rust"])
+    runner = LizardRunner(config)
+    status, functions, summary = runner.run(temp_dir)
+
+    assert status.available is True
+    assert len(functions) == 1
+    assert functions[0].name == "rs_func"
+    assert summary["files_count"] == 1
+
+
 def test_lizard_runner_missing(temp_dir):
     with patch("architecture_fitness.runners.lizard_runner.LIZARD_LIB_AVAILABLE", False), \
          patch("shutil.which", return_value=None):

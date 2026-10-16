@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import ast
+import os
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 import pathspec
 
 from .config import FitnessConfig
@@ -94,6 +95,15 @@ class ReuseFinder:
         root = Path(repo_path).resolve()
         spec = pathspec.PathSpec.from_lines("gitignore", self.config.exclude_paths)
 
+        gitignore = root / ".gitignore"
+        gi_spec = None
+        if gitignore.exists():
+            try:
+                with open(gitignore, "r", encoding="utf-8") as f:
+                    gi_spec = pathspec.PathSpec.from_lines("gitignore", f.readlines())
+            except Exception:
+                pass
+
         query_tokens = self._tokenize(query)
         if context:
             query_tokens |= self._tokenize(context)
@@ -102,22 +112,39 @@ class ReuseFinder:
             return []
 
         all_symbols: List[Dict[str, Any]] = []
+        supported_suffixes = {".py", ".pyi", ".js", ".jsx", ".ts", ".tsx", ".rs", ".go"}
 
-        for p in root.rglob("*"):
-            if not p.is_file():
+        for dirpath, dirnames, filenames in os.walk(root):
+            rel_dir = Path(dirpath).relative_to(root).as_posix()
+            if rel_dir != "." and (
+                spec.match_file(rel_dir)
+                or spec.match_file(f"{rel_dir}/")
+                or (gi_spec and (gi_spec.match_file(rel_dir) or gi_spec.match_file(f"{rel_dir}/")))
+            ):
+                dirnames.clear()
                 continue
-            try:
+
+            dirnames[:] = [
+                d for d in dirnames
+                if not (
+                    spec.match_file(f"{rel_dir}/{d}" if rel_dir != "." else d)
+                    or spec.match_file(f"{rel_dir}/{d}/" if rel_dir != "." else f"{d}/")
+                    or (gi_spec and (gi_spec.match_file(f"{rel_dir}/{d}" if rel_dir != "." else d) or gi_spec.match_file(f"{rel_dir}/{d}/" if rel_dir != "." else f"{d}/")))
+                )
+            ]
+
+            for fn in filenames:
+                p = Path(dirpath) / fn
+                if p.suffix not in supported_suffixes:
+                    continue
                 rel = p.relative_to(root).as_posix()
-            except ValueError:
-                continue
+                if spec.match_file(rel) or (gi_spec and gi_spec.match_file(rel)):
+                    continue
 
-            if spec.match_file(rel):
-                continue
-
-            if p.suffix in [".py", ".pyi"]:
-                all_symbols.extend(self._extract_python_symbols(p, root))
-            elif p.suffix in [".js", ".jsx", ".ts", ".tsx", ".rs", ".go"]:
-                all_symbols.extend(self._extract_generic_symbols(p, root))
+                if p.suffix in [".py", ".pyi"]:
+                    all_symbols.extend(self._extract_python_symbols(p, root))
+                elif p.suffix in [".js", ".jsx", ".ts", ".tsx", ".rs", ".go"]:
+                    all_symbols.extend(self._extract_generic_symbols(p, root))
 
         scored_candidates: List[Tuple[float, Dict[str, Any], str]] = []
 

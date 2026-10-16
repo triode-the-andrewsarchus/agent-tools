@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -46,10 +47,15 @@ class ArchitectureFitnessService:
         jscpd_runner = JscpdRunner(config)
         valknut_runner = ValknutRunner(config)
 
-        # Run analyzers
-        lizard_res = lizard_runner.run(root, target_paths=target_paths)
-        jscpd_res = jscpd_runner.run(root, target_paths=target_paths)
-        valknut_res = valknut_runner.run(root, target_paths=target_paths, profile=profile)
+        # Run analyzers concurrently
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            fut_lizard = executor.submit(lizard_runner.run, root, target_paths=target_paths)
+            fut_jscpd = executor.submit(jscpd_runner.run, root, target_paths=target_paths)
+            fut_valknut = executor.submit(valknut_runner.run, root, target_paths=target_paths, profile=profile)
+
+            lizard_res = fut_lizard.result()
+            jscpd_res = fut_jscpd.result()
+            valknut_res = fut_valknut.result()
 
         git_commit = GitUtils.get_head_commit(root)
         git_branch = GitUtils.get_current_branch(root)

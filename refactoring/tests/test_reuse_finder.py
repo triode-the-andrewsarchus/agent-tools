@@ -39,3 +39,19 @@ function formatCurrencyUSD(cents) {
 
     assert len(candidates) >= 1
     assert candidates[0].symbol_name == "formatCurrencyUSD"
+
+
+def test_reuse_finder_respects_gitignore(temp_dir):
+    (temp_dir / ".gitignore").write_text("/ignored_dir\n*.tmp.py\n")
+    ign_dir = temp_dir / "ignored_dir"
+    ign_dir.mkdir()
+    (ign_dir / "secret.py").write_text("def authenticate_admin_user():\n    pass\n")
+    (temp_dir / "test.tmp.py").write_text("def authenticate_guest_user():\n    pass\n")
+    (temp_dir / "valid.py").write_text("def authenticate_member_user():\n    pass\n")
+
+    finder = ReuseFinder()
+    candidates = finder.find_candidates(temp_dir, query="authenticate user")
+
+    assert len(candidates) == 1
+    assert candidates[0].symbol_name == "authenticate_member_user"
+    assert candidates[0].file_path == "valid.py"
